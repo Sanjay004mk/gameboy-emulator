@@ -1,0 +1,15 @@
+.vs/
+.vscode/
+
+bin/
+bin-int/
+
+gameboy-emulator.sln
+
+renderer/renderer.vcxproj
+renderer/renderer.vcxproj.filters
+
+emulator/emulator.vcxproj
+
+ext/glfw/glfw.vcxproj
+ext/glfw/glfw.vcxproj.filters
