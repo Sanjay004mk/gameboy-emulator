@@ -8,7 +8,17 @@ project "emulator"
 
     files "src/**"
 
-    includedirs "%{wks.location}/renderer/include"
+    includedirs 
+    {
+        "%{wks.location}/renderer/include",
+        "%{IncludeDir.glm}",
+        "%{IncludeDir.spdlog}",
+        "src/pch",
+    }
+
+    pchheader "emupch.h"
+    pchsource "src/pch/emupch.cpp"
+
 
     links "renderer"
 

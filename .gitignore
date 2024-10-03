@@ -8,8 +8,17 @@ gameboy-emulator.sln
 
 renderer/renderer.vcxproj
 renderer/renderer.vcxproj.filters
+renderer/renderer.vcxproj.user
 
 emulator/emulator.vcxproj
+emulator/emulator.vcxproj.filters
+emulator/emulator.vcxproj.user
+emulator/*.log
 
 ext/glfw/glfw.vcxproj
 ext/glfw/glfw.vcxproj.filters
+ext/glfw/glfw.vcxproj.user
+
+ext/spdlog/spdlog.vcxproj
+ext/spdlog/spdlog.vcxproj.filters
+ext/spdlog/spdlog.vcxproj.spdlog

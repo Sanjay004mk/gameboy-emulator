@@ -27,7 +27,13 @@ project "renderer"
         "%{Library.Vulkan}"
     }
 
-    defines "WIN_EXPORT"
+    defines 
+    {
+        "RDR_EXPORT",
+    }
+
+    pchheader "renderer/rdrpch.h"
+    pchsource "src/rdrpch.cpp"
 
     postbuildcommands "{COPYFILE} %{cfg.buildtarget.relpath} %{cfg.buildtarget.directory}/../emulator"
 
