@@ -35,7 +35,6 @@ namespace rdr
 	{
 		Logger::Init(applicationName);
 		mRenderer = new Renderer(CommandLineArgumentsList(argc, argv));
-
 	}
 
 	void Renderer::Shutdown()

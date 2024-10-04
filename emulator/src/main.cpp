@@ -10,6 +10,11 @@ int main(int argc, const char** argv)
 
     auto window = rdr::Renderer::InstantiateWindow(config);
 
+    window->RegisterCallback<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
+        {
+            RDR_LOG_INFO("{}", e);
+        });
+
     RDR_LOG_INFO("Starting Main Loop");
     while (!window->ShouldClose())
     {

@@ -1,7 +1,7 @@
 #pragma once
 #include "renderer/rdrapi.h"
 
-#include "renderer/event.h
+#include "renderer/event.h"
 
 struct GLFWwindow;
 
@@ -12,6 +12,19 @@ namespace rdr
 		Normal        =  0x00034001,
 		Hidden        =  0x00034002,
 		Disabled      =  0x00034003,
+	};
+
+	struct WindowEventCallbacks
+	{
+		EventCallbackFunction windowResize;
+		EventCallbackFunction windowClose;
+		EventCallbackFunction keyPressed = [](Event& e) {};
+		EventCallbackFunction keyReleased = [](Event& e) {};
+		EventCallbackFunction keyTyped;
+		EventCallbackFunction mouseMoved;
+		EventCallbackFunction mouseScrolled;
+		EventCallbackFunction mouseButtonPressed = [](Event& e) {};
+		EventCallbackFunction mouseButtonReleased = [](Event& e) {};
 	};
 
 	struct WindowConfiguration
@@ -34,12 +47,13 @@ namespace rdr
         bool maximized = false;
 
         bool decorated = true;
-	};
+
+		WindowEventCallbacks eventCallbacks;
+	};	
 
 	class RDRAPI Window
 	{
 	public:
-		using EventCallbackFunction = std::function<void(Event& e)>;
 
 		Window(const WindowConfiguration& conf = {});
 		~Window();
@@ -60,13 +74,19 @@ namespace rdr
 		void SetMaximized(bool isMaximized);
 		void SetDecorated(bool isDecorated);
 
-		void SetupCallback(const EventCallbackFunction& callback);
+		void SetEventCallback(const EventCallbackFunction& callback);
+
+		template <typename T, typename F>
+		void RegisterCallback(F func)
+		{
+			RegisterCallback(T::GetStaticType(), [func](Event& e) { func(static_cast<T&>(e)); });
+		}
 
 	private:
 		void Init();
+		void RegisterCallback(EventType eventType, EventCallbackFunction callback);
 
 		GLFWwindow* mGlfwWindow;
 		WindowConfiguration mConfig;
-		EventCallbackFunction mEventCallback;
 	};
 }
