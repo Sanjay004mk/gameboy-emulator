@@ -42,14 +42,19 @@ namespace rdr
 		if (mConfig.minimized)
 			glfwIconifyWindow(mGlfwWindow);
 
-		SetupCallback();
-
 		RDR_LOG_INFO("Created Window: [{}, ({}, {})]", mConfig.title, mConfig.size.x, mConfig.size.y);
 	}
 
-	void Window::SetupCallback()
+	void Window::SetupCallback(const EventCallbackFunction& callback)
 	{
+		mEventCallback = callback;
 
+		glfwSetWindowUserPointer(mGlfwWindow, this);
+
+		glfwSetFramebufferSizeCallback(mGlfwWindow, [](GLFWwindow* glfwWindow, int32_t width, int32_t height)
+			{
+				Window& window = *(Window*)glfwGetWindowUserPointer(glfwWindow);
+			});
 	}
 
 	void Window::Update()

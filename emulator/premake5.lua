@@ -14,6 +14,7 @@ project "emulator"
         "%{IncludeDir.glm}",
         "%{IncludeDir.spdlog}",
         "src/pch",
+        "src",
     }
 
     pchheader "emupch.h"

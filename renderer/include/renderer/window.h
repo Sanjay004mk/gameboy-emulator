@@ -1,6 +1,8 @@
 #pragma once
 #include "renderer/rdrapi.h"
 
+#include "renderer/event.h
+
 struct GLFWwindow;
 
 namespace rdr
@@ -37,6 +39,8 @@ namespace rdr
 	class RDRAPI Window
 	{
 	public:
+		using EventCallbackFunction = std::function<void(Event& e)>;
+
 		Window(const WindowConfiguration& conf = {});
 		~Window();
 
@@ -56,11 +60,13 @@ namespace rdr
 		void SetMaximized(bool isMaximized);
 		void SetDecorated(bool isDecorated);
 
+		void SetupCallback(const EventCallbackFunction& callback);
+
 	private:
 		void Init();
-		void SetupCallback();
 
 		GLFWwindow* mGlfwWindow;
 		WindowConfiguration mConfig;
+		EventCallbackFunction mEventCallback;
 	};
 }

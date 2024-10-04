@@ -18,7 +18,8 @@ project "renderer"
         "%{IncludeDir.glfw}",
         "%{IncludeDir.VulkanSDK}",
         "%{IncludeDir.glm}",
-        "%{IncludeDir.spdlog}"
+        "%{IncludeDir.spdlog}",
+        "src",
     }
 
     links

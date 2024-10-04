@@ -1,5 +1,7 @@
 #pragma once
 
 #include "renderer.h"
-#include "logger.h"
 #include "window.h"
+#include "event.h"
+
+#include "logger.h"
