@@ -12,7 +12,8 @@ int main(int argc, const char** argv)
 
     window->RegisterCallback<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
         {
-            RDR_LOG_INFO("{}", e);
+            if (window->IsKeyDown(rdr::Key::LeftShift))
+                RDR_LOG_INFO("{}", e);
         });
 
     RDR_LOG_INFO("Starting Main Loop");

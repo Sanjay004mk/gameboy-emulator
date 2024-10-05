@@ -14,19 +14,6 @@ namespace rdr
 		Disabled      =  0x00034003,
 	};
 
-	struct WindowEventCallbacks
-	{
-		EventCallbackFunction windowResize;
-		EventCallbackFunction windowClose;
-		EventCallbackFunction keyPressed = [](Event& e) {};
-		EventCallbackFunction keyReleased = [](Event& e) {};
-		EventCallbackFunction keyTyped;
-		EventCallbackFunction mouseMoved;
-		EventCallbackFunction mouseScrolled;
-		EventCallbackFunction mouseButtonPressed = [](Event& e) {};
-		EventCallbackFunction mouseButtonReleased = [](Event& e) {};
-	};
-
 	struct WindowConfiguration
 	{
 		glm::u32vec2 size = glm::u32vec2(1280, 720);
@@ -48,7 +35,7 @@ namespace rdr
 
         bool decorated = true;
 
-		WindowEventCallbacks eventCallbacks;
+		EventCallbackFunction eventCallbacks[EventType::EventCount];
 	};	
 
 	class RDRAPI Window
@@ -82,9 +69,16 @@ namespace rdr
 			RegisterCallback(T::GetStaticType(), [func](Event& e) { func(static_cast<T&>(e)); });
 		}
 
+		bool IsKeyDown(KeyCode key) const;
+		bool IsMouseButtonDown(MouseCode button) const;
+
+		glm::vec2 GetMousePosition() const;
+		float GetMouseX() const;
+		float GetMouseY() const;
+
 	private:
 		void Init();
-		void RegisterCallback(EventType eventType, EventCallbackFunction callback);
+		void RegisterCallback(EventID eventType, EventCallbackFunction callback);
 
 		GLFWwindow* mGlfwWindow;
 		WindowConfiguration mConfig;

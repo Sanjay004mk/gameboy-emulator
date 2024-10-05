@@ -13,7 +13,7 @@ namespace utils
 				rdr::WindowConfiguration& config = *(rdr::WindowConfiguration*)glfwGetWindowUserPointer(glfwWindow);
 
 				rdr::WindowCloseEvent event;
-				config.eventCallbacks.windowClose(event);
+				config.eventCallbacks[rdr::EventType::WindowClose](event);
 			});
 	}
 
@@ -26,7 +26,7 @@ namespace utils
 				config.size.y = (uint32_t)height;
 
 				rdr::WindowResizeEvent event(config.size.x, config.size.y);
-				config.eventCallbacks.windowResize(event);
+				config.eventCallbacks[rdr::EventType::WindowResize](event);
 			});
 	}
 
@@ -41,19 +41,19 @@ namespace utils
 				case GLFW_PRESS:
 				{
 					rdr::KeyPressedEvent event(key);
-					config.eventCallbacks.keyPressed(event);
+					config.eventCallbacks[rdr::EventType::KeyPressed](event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
 					rdr::KeyReleasedEvent event(key);
-					config.eventCallbacks.keyReleased(event);
+					config.eventCallbacks[rdr::EventType::KeyReleased](event);
 					break;
 				}
 				case GLFW_REPEAT:
 				{
 					rdr::KeyPressedEvent event(key, true);
-					config.eventCallbacks.keyPressed(event);
+					config.eventCallbacks[rdr::EventType::KeyPressed](event);
 					break;
 				}
 				}
@@ -68,7 +68,7 @@ namespace utils
 				rdr::WindowConfiguration& config = *(rdr::WindowConfiguration*)glfwGetWindowUserPointer(glfwWindow);
 				
 				rdr::KeyTypedEvent event(keycode);
-				config.eventCallbacks.keyTyped(event);
+				config.eventCallbacks[rdr::EventType::KeyTyped](event);
 			});
 	}
 
@@ -83,13 +83,13 @@ namespace utils
 				case GLFW_PRESS:
 				{
 					rdr::MouseButtonPressedEvent event(button);
-					config.eventCallbacks.mouseButtonPressed(event);
+					config.eventCallbacks[rdr::EventType::MouseButtonPressed](event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
 					rdr::MouseButtonReleasedEvent event(button);
-					config.eventCallbacks.mouseButtonReleased(event);
+					config.eventCallbacks[rdr::EventType::MouseButtonReleased](event);
 					break;
 				}
 				}
@@ -103,7 +103,7 @@ namespace utils
 				rdr::WindowConfiguration& config = *(rdr::WindowConfiguration*)glfwGetWindowUserPointer(glfwWindow);
 				
 				rdr::MouseScrolledEvent event((float)xOffs, (float)yOffs);
-				config.eventCallbacks.mouseScrolled(event);
+				config.eventCallbacks[rdr::EventType::MouseScrolled](event);
 			});
 	}
 
@@ -114,7 +114,7 @@ namespace utils
 				rdr::WindowConfiguration& config = *(rdr::WindowConfiguration*)glfwGetWindowUserPointer(glfwWindow);
 				
 				rdr::MouseMovedEvent event((float)xPos, (float)yPos);
-				config.eventCallbacks.mouseMoved(event);
+				config.eventCallbacks[rdr::EventType::MouseMoved](event);
 			});
 	}
 
@@ -198,76 +198,24 @@ namespace rdr
 				config.position.y = (uint32_t)ypos;
 			});
 
+		for (size_t i = 0; i < sizeof(mConfig.eventCallbacks) / sizeof(mConfig.eventCallbacks[0]); i++)
+			if (!mConfig.eventCallbacks[i])
+				mConfig.eventCallbacks[i] = [](Event& e) {};
+
+		utils::register_all_events(mGlfwWindow);
+
 		RDR_LOG_INFO("Created Window: [{}, ({}, {})]", mConfig.title, mConfig.size.x, mConfig.size.y);
 	}
 
-	void Window::RegisterCallback(EventType eventType, EventCallbackFunction callback)
+	void Window::RegisterCallback(EventID eventType, EventCallbackFunction callback)
 	{
-		switch (eventType)
-		{
-		case EventType::WindowClose:
-			mConfig.eventCallbacks.windowClose = callback;
-			utils::register_window_close_event(mGlfwWindow);
-			break;
-
-		case EventType::WindowResize:
-			mConfig.eventCallbacks.windowResize = callback;
-			utils::register_framebuffer_resize_event(mGlfwWindow);
-			break;
-
-		case EventType::KeyPressed:
-			mConfig.eventCallbacks.keyPressed = callback;
-			utils::register_key_event(mGlfwWindow);
-			break;
-
-		case EventType::KeyReleased:
-			mConfig.eventCallbacks.keyReleased = callback;
-			utils::register_key_event(mGlfwWindow);
-			break;
-
-		case EventType::KeyTyped:
-			mConfig.eventCallbacks.keyTyped = callback;
-			utils::register_key_typed_event(mGlfwWindow);
-			break;
-
-		case EventType::MouseButtonPressed:
-			mConfig.eventCallbacks.mouseButtonPressed = callback;
-			utils::register_mouse_button_event(mGlfwWindow);
-			break;
-
-		case EventType::MouseButtonReleased:
-			mConfig.eventCallbacks.mouseButtonReleased = callback;
-			utils::register_mouse_button_event(mGlfwWindow);
-			break;
-
-		case EventType::MouseMoved:
-			mConfig.eventCallbacks.mouseMoved = callback;
-			utils::register_mouse_move_event(mGlfwWindow);
-			break;
-
-		case EventType::MouseScrolled:
-			mConfig.eventCallbacks.mouseScrolled = callback;
-			utils::register_mouse_scroll_event(mGlfwWindow);
-			break;
-
-		default:
-			RDR_ASSERT_MSG_BREAK(false, "Invalid event type registered");
-		}
+		mConfig.eventCallbacks[eventType] = callback;
 	}
 
 	void Window::SetEventCallback(const EventCallbackFunction& callback)
 	{
-		mConfig.eventCallbacks.windowResize = callback;
-		mConfig.eventCallbacks.windowClose = callback;
-		mConfig.eventCallbacks.keyPressed = callback;
-		mConfig.eventCallbacks.keyReleased = callback;
-		mConfig.eventCallbacks.keyTyped = callback;
-		mConfig.eventCallbacks.mouseMoved = callback;
-		mConfig.eventCallbacks.mouseScrolled = callback;
-		mConfig.eventCallbacks.mouseButtonPressed = callback;
-		mConfig.eventCallbacks.mouseButtonReleased = callback;
-
-		utils::register_all_events(mGlfwWindow);
+		for (size_t i = 0; i < sizeof(mConfig.eventCallbacks) / sizeof(mConfig.eventCallbacks[0]); i++)
+			mConfig.eventCallbacks[i] = callback;
 	}
 
 	void Window::Update()
@@ -366,5 +314,32 @@ namespace rdr
 
 			mConfig.decorated = isDecorated;
 		}
+	}
+
+	bool Window::IsKeyDown(KeyCode key) const
+	{
+		return glfwGetKey(mGlfwWindow, key);
+	}
+
+	bool Window::IsMouseButtonDown(MouseCode button) const
+	{
+		return glfwGetMouseButton(mGlfwWindow, button);
+	}
+
+	glm::vec2 Window::GetMousePosition() const
+	{
+		double xpos, ypos;
+		glfwGetCursorPos(mGlfwWindow, &xpos, &ypos);
+		return glm::vec2((float)xpos, (float)ypos);
+	}
+
+	float Window::GetMouseX() const
+	{
+		return GetMousePosition().x;
+	}
+
+	float Window::GetMouseY() const
+	{
+		return GetMousePosition().y;
 	}
 }

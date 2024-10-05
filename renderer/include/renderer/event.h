@@ -5,14 +5,18 @@
 
 namespace rdr
 {
-	enum class EventType
+	using EventID = uint32_t;
+	namespace EventType
 	{
-		None = 0,
-		WindowClose, WindowResize, // WindowFocus, WindowLostFocus, WindowMoved,
-		KeyPressed, KeyReleased, KeyTyped,
-		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
-		// TODO add controller
-	};
+		enum : EventID
+		{
+			WindowClose = 0, WindowResize, // WindowFocus, WindowLostFocus, WindowMoved,
+			KeyPressed, KeyReleased, KeyTyped,
+			MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
+			// TODO add controller
+			EventCount
+		};
+	}
 
 	class RDRAPI Event
 	{
@@ -21,12 +25,12 @@ namespace rdr
 
 		virtual ~Event() = default;
 
-		virtual EventType GetEventType() const = 0;
+		virtual EventID GetEventType() const = 0;
 		virtual std::string_view GetName() const = 0;
 		virtual std::string ToString() const { return std::string(GetName()); }
 	};
 
-	using EventCallbackFunction = std::function<void(Event& e)>;
+	using EventCallbackFunction = std::function<void(Event&)>;
 
 	class RDRAPI EventDispatcher
 	{
@@ -46,8 +50,8 @@ namespace rdr
 		Event& mEvent;
 	};
 
-#define EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; }\
-virtual EventType GetEventType() const override { return EventType::type; }\
+#define EVENT_CLASS_TYPE(type) static EventID GetStaticType() { return EventType::type; }\
+virtual EventID GetEventType() const override { return EventType::type; }\
 virtual std::string_view GetName() const override { return #type; }
 
 	class WindowResizeEvent : public Event
@@ -106,7 +110,7 @@ virtual std::string_view GetName() const override { return #type; }
 		std::string ToString() const override
 		{
 			std::stringstream ss;
-			ss << "KeyPressedEvent: " << mKeyCode << " [REPEATED = " << mIsRepeated << "]";
+			ss << "KeyPressedEvent: " << Key::KeyCodeToString[mKeyCode] << " [REPEATED = " << mIsRepeated << "]";
 			return ss.str();
 		}
 
@@ -126,7 +130,7 @@ virtual std::string_view GetName() const override { return #type; }
 		std::string ToString() const override
 		{
 			std::stringstream ss;
-			ss << "KeyReleasedEvent: " << mKeyCode;
+			ss << "KeyReleasedEvent: " << Key::KeyCodeToString[mKeyCode];
 			return ss.str();
 		}
 
@@ -221,7 +225,7 @@ virtual std::string_view GetName() const override { return #type; }
 		std::string ToString() const override
 		{
 			std::stringstream ss;
-			ss << "MouseButtonPressedEvent: " << mMouseCode;
+			ss << "MouseButtonPressedEvent: " << Mouse::MouseCodeToString[mMouseCode];
 			return ss.str();
 		}
 
@@ -238,7 +242,7 @@ virtual std::string_view GetName() const override { return #type; }
 		std::string ToString() const override
 		{
 			std::stringstream ss;
-			ss << "MouseButtonReleasedEvent: " << mMouseCode;
+			ss << "MouseButtonReleasedEvent: " << Mouse::MouseCodeToString[mMouseCode];
 			return ss.str();
 		}
 
