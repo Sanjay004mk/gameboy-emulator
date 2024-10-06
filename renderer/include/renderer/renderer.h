@@ -25,13 +25,16 @@ namespace rdr
 		std::span<const char*> args;
 	};
 
+	class RenderEngine;
+
+	struct RendererConfiguration
+	{
+		CommandLineArgumentsList clArgs;
+		std::string applicationName;
+	};
+
 	class Renderer
 	{
-		struct RendererConfiguration
-		{
-			CommandLineArgumentsList clArgs;
-		};
-
 	public:
 		static RDRAPI void Init(int argc, const char** argv, std::string_view applicationName = "Application");
 		static RDRAPI void Shutdown();
@@ -43,10 +46,16 @@ namespace rdr
 		static RDRAPI void FreeWindow(Window* window);
 
 	private:
-		Renderer(const CommandLineArgumentsList& args);
+		Renderer(const RendererConfiguration& config);
 		~Renderer();
 
+		static Renderer* Get() { return mRenderer; }
+
 		static inline Renderer* mRenderer = nullptr;
+		RendererConfiguration mConfig;
+		RenderEngine* mRenderEngine;
 		std::vector<Window*> mWindows;
+
+		friend class RenderEngine;
 	};
 }
