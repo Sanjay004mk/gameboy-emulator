@@ -14,6 +14,9 @@ namespace rdr
 		Disabled      =  0x00034003,
 	};
 
+	class GPUDevice;
+	using GPUDeviceHandle = GPUDevice*;
+
 	struct WindowConfiguration
 	{
 		glm::u32vec2 size = glm::u32vec2(1280, 720);
@@ -36,6 +39,8 @@ namespace rdr
         bool decorated = true;
 
 		EventCallbackFunction eventCallbacks[EventType::EventCount];
+
+		GPUDeviceHandle gpuDevice = nullptr;
 	};	
 
 	class RDRAPI Window

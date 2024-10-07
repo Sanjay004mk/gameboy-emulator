@@ -1,5 +1,6 @@
 #include "renderer/rdrpch.h"
 
+#include "renderer/renderer.h"
 #include "renderer/window.h"
 
 #include <GLFW/glfw3.h>
@@ -205,6 +206,9 @@ namespace rdr
 		utils::register_all_events(mGlfwWindow);
 
 		RDR_LOG_INFO("Created Window: [{}, ({}, {})]", mConfig.title, mConfig.size.x, mConfig.size.y);
+
+		if (!mConfig.gpuDevice)
+			mConfig.gpuDevice = Renderer::GetPrimaryGPU();
 	}
 
 	void Window::RegisterCallback(EventID eventType, EventCallbackFunction callback)

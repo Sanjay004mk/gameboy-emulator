@@ -5,7 +5,7 @@ IncludeDir["glfw"] = "%{wks.location}/ext/glfw/include"
 IncludeDir["VulkanSDK"] = "%{VULKAN_SDK}/Include"
 IncludeDir["glm"] = "%{wks.location}/ext/glm"
 IncludeDir["spdlog"] = "%{wks.location}/ext/spdlog/include"
-IncludeDir["yaml_cpp"] = "%{wks.location}/ext/yaml-cpp/include"
+IncludeDir["vma"] = "%{wks.location}/ext/vma/include"
 
 Library = {}
 Library["Vulkan"] = "%{VULKAN_SDK}/Lib/vulkan-1.lib"

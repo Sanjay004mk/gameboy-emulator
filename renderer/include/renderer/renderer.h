@@ -26,6 +26,8 @@ namespace rdr
 	};
 
 	class RenderEngine;
+	class GPUDevice;
+	using GPUDeviceHandle = GPUDevice*;
 
 	struct RendererConfiguration
 	{
@@ -44,6 +46,9 @@ namespace rdr
 
 		static RDRAPI Window* InstantiateWindow(const WindowConfiguration& windowConfig);
 		static RDRAPI void FreeWindow(Window* window);
+
+		static RDRAPI const GPUDeviceHandle GetPrimaryGPU();
+		// TODO add ability to choose custom device and multiple devices
 
 	private:
 		Renderer(const RendererConfiguration& config);

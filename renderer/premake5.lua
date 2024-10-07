@@ -19,6 +19,7 @@ project "renderer"
         "%{IncludeDir.VulkanSDK}",
         "%{IncludeDir.glm}",
         "%{IncludeDir.spdlog}",
+        "%{IncludeDir.vma}",
         "src",
     }
 

@@ -5,6 +5,19 @@
 
 namespace rdr
 {
+	class GPUDevice
+	{
+	public:
+		GPUDevice(VkPhysicalDevice device);
+		~GPUDevice();
+
+	private:
+		VkPhysicalDevice mPhysicalDevice = nullptr;
+		VkDevice mDevice = nullptr;
+
+		uint32_t mGraphicsQueueIndex = -1;
+	};
+
 	class RenderEngine
 	{
 	public:
@@ -17,6 +30,11 @@ namespace rdr
 #if defined(RDR_DEBUG)
 		VkDebugUtilsMessengerEXT mDebugUtilsMessenger = nullptr;
 #endif
+
+		GPUDevice* mPrimaryDevice = nullptr;
+		GPUDevice* mWorkerDevices = nullptr;
+
+		friend class Renderer;
 	};
 }
 

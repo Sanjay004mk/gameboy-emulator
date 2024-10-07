@@ -83,6 +83,11 @@ namespace rdr
 		}
 	}
 
+	const GPUDeviceHandle rdr::Renderer::GetPrimaryGPU()
+	{
+		return mRenderer->mRenderEngine->mPrimaryDevice;
+	}
+
 	RenderEngine::RenderEngine(const RendererConfiguration& config)
 	{
 		VkResult err = VK_SUCCESS;
@@ -93,16 +98,14 @@ namespace rdr
 
 			RDR_ASSERT_MSG_BREAK(extensionCount != 0, "Vulkan rendering not supported");
 
-			VkApplicationInfo appInfo{};
-			appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+			VkApplicationInfo appInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
 			appInfo.apiVersion = VK_API_VERSION_1_3;
 			appInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
 			appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
 			appInfo.pApplicationName = config.applicationName.c_str();
 			appInfo.pEngineName = "renderer";
 
-			VkInstanceCreateInfo instanceCreateInfo{};
-			instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+			VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 			instanceCreateInfo.pApplicationInfo = &appInfo;
 			instanceCreateInfo.enabledExtensionCount = extensionCount;
 			instanceCreateInfo.ppEnabledExtensionNames = extensions;
@@ -113,25 +116,23 @@ namespace rdr
 			instanceCreateInfo.enabledLayerCount = 1;
 			instanceCreateInfo.ppEnabledLayerNames = layers;
 
-			const char** extensions_ext = (const char**)malloc(sizeof(const char*) * (extensionCount + 1));
-			memcpy_s(extensions_ext, sizeof(const char*) * (extensionCount + 1), extensions, sizeof(const char*) * extensionCount);
-			extensions_ext[extensionCount] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+			std::vector<const char*> extensions_ext(extensions, extensions + extensionCount);
+			extensions_ext.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
 			instanceCreateInfo.enabledExtensionCount += 1;
-			instanceCreateInfo.ppEnabledExtensionNames = extensions_ext;
+			instanceCreateInfo.ppEnabledExtensionNames = extensions_ext.data();
 #endif
 
 			err = vkCreateInstance(&instanceCreateInfo, nullptr, &mVkInstance);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create VkInstance", err);
 
 #if defined(RDR_DEBUG)
-			free(extensions_ext);
 
 			auto FNvkCreateDebugUtilsMessengerExt = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(mVkInstance, "vkCreateDebugUtilsMessengerEXT");
 			RDR_ASSERT_NO_MSG_BREAK(FNvkCreateDebugUtilsMessengerExt);
 
-			VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-			debugCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+			VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = 
+			{ VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
 			debugCreateInfo.messageSeverity = 
 				VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | 
 				VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | 
@@ -160,10 +161,37 @@ namespace rdr
 
 			RDR_LOG_INFO("Created Vulkan Instance");
 		}
+
+		// Choosing Primary GPU
+		{
+			uint32_t count = 0;
+			vkEnumeratePhysicalDevices(mVkInstance, &count, nullptr);
+			std::vector<VkPhysicalDevice> devices(count);
+			vkEnumeratePhysicalDevices(mVkInstance, &count, devices.data());
+
+			RDR_ASSERT_NO_MSG_BREAK(count != 0);
+
+			VkPhysicalDeviceProperties properties{};
+			for (auto& device : devices)
+			{
+				vkGetPhysicalDeviceProperties(device, &properties);
+				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+				{
+					RDR_LOG_INFO("Vulkan: Using {} as primary GPU", properties.deviceName);
+					mPrimaryDevice = new GPUDevice(device);
+					break;
+				}
+			}
+
+			// TODO better device selection
+			if (!mPrimaryDevice) // default to first device
+				mPrimaryDevice = new GPUDevice(devices[0]);
+		}
 	}
 
 	RenderEngine::~RenderEngine()
 	{
+		delete mPrimaryDevice;
 
 #if defined(RDR_DEBUG)
 		auto FNvkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(mVkInstance, "vkDestroyDebugUtilsMessengerEXT");
@@ -174,5 +202,65 @@ namespace rdr
 
 		vkDestroyInstance(mVkInstance, nullptr);
 		RDR_LOG_INFO("Destroyed Vulkan instance");
+	}
+
+	GPUDevice::GPUDevice(VkPhysicalDevice device)
+		: mPhysicalDevice(device)
+	{
+		VkResult err{};
+		// Graphics queue
+		{
+			uint32_t count = 0;
+			vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
+			std::vector<VkQueueFamilyProperties> properties(count);
+			vkGetPhysicalDeviceQueueFamilyProperties(device, &count, properties.data());
+
+			for (uint32_t queueIndex = 0; queueIndex < count; queueIndex++)
+			{
+				if (properties[queueIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+				{
+					mGraphicsQueueIndex = queueIndex;
+					break;
+				}
+			}
+
+			RDR_ASSERT_MSG_BREAK(mGraphicsQueueIndex != -1, "Vulkan: Failed to find suitable graphics queue");
+		}
+
+		// Logical Device
+		{
+
+			VkPhysicalDeviceFeatures deviceFeatures{};
+			deviceFeatures.fillModeNonSolid = VK_TRUE;
+			deviceFeatures.shaderStorageImageArrayDynamicIndexing = VK_TRUE;
+
+			std::array<const char*, 1> deviceExtensions = {
+				"VK_KHR_swapchain",
+			};
+
+			float priorities[] = { 1.f };
+
+			VkDeviceQueueCreateInfo queueCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
+			queueCreateInfo.queueCount = 1;
+			queueCreateInfo.queueFamilyIndex = mGraphicsQueueIndex;
+			queueCreateInfo.pQueuePriorities = priorities;
+
+			VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+			deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
+			deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+			deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+			deviceCreateInfo.queueCreateInfoCount = 1;
+			deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+			
+			err = vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice);
+			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create logical device", err);
+		}
+
+		RDR_LOG_INFO("Vulkan: Created logical device");
+	}
+
+	GPUDevice::~GPUDevice()
+	{
+		vkDestroyDevice(mDevice, nullptr);
 	}
 }
