@@ -25,9 +25,9 @@ namespace rdr
 		std::span<const char*> args;
 	};
 
-	class RenderEngine;
-	class GPUDevice;
-	using GPUDeviceHandle = GPUDevice*;
+	struct RenderEngine;
+	struct GPU;
+	using GPUHandle = GPU*;
 
 	struct RendererConfiguration
 	{
@@ -47,7 +47,7 @@ namespace rdr
 		static RDRAPI Window* InstantiateWindow(const WindowConfiguration& windowConfig);
 		static RDRAPI void FreeWindow(Window* window);
 
-		static RDRAPI const GPUDeviceHandle GetPrimaryGPU();
+		static RDRAPI const GPUHandle GetPrimaryGPU();
 		// TODO add ability to choose custom device and multiple devices
 
 	private:
@@ -61,6 +61,6 @@ namespace rdr
 		RenderEngine* mRenderEngine;
 		std::vector<Window*> mWindows;
 
-		friend class RenderEngine;
+		friend class Window;
 	};
 }

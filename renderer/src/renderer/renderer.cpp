@@ -6,6 +6,8 @@
 
 #include <glfw/glfw3.h>
 
+#include <glm/glm.hpp>
+
 namespace rdr
 {
 	Renderer::Renderer(const RendererConfiguration& config)
@@ -83,7 +85,7 @@ namespace rdr
 		}
 	}
 
-	const GPUDeviceHandle rdr::Renderer::GetPrimaryGPU()
+	const GPUHandle rdr::Renderer::GetPrimaryGPU()
 	{
 		return mRenderer->mRenderEngine->mPrimaryDevice;
 	}
@@ -178,14 +180,14 @@ namespace rdr
 				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
 				{
 					RDR_LOG_INFO("Vulkan: Using {} as primary GPU", properties.deviceName);
-					mPrimaryDevice = new GPUDevice(device);
+					mPrimaryDevice = new GPU(device);
 					break;
 				}
 			}
 
 			// TODO better device selection
 			if (!mPrimaryDevice) // default to first device
-				mPrimaryDevice = new GPUDevice(devices[0]);
+				mPrimaryDevice = new GPU(devices[0]);
 		}
 	}
 
@@ -204,7 +206,7 @@ namespace rdr
 		RDR_LOG_INFO("Destroyed Vulkan instance");
 	}
 
-	GPUDevice::GPUDevice(VkPhysicalDevice device)
+	GPU::GPU(VkPhysicalDevice device)
 		: mPhysicalDevice(device)
 	{
 		VkResult err{};
@@ -259,8 +261,201 @@ namespace rdr
 		RDR_LOG_INFO("Vulkan: Created logical device");
 	}
 
-	GPUDevice::~GPUDevice()
+	GPU::~GPU()
 	{
 		vkDestroyDevice(mDevice, nullptr);
+	}
+
+	void Window::SetupSurface()
+	{
+		mConfig.surfaceInfo = new WindowSurfaceInformation();
+		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
+		VkResult err = glfwCreateWindowSurface(Renderer::Get()->mRenderEngine->mVkInstance, mGlfwWindow, nullptr, &surface);
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan|GLFW {}: Failed to create window surface", err);
+
+		VkBool32 supported = VK_FALSE;
+		vkGetPhysicalDeviceSurfaceSupportKHR(mConfig.gpuDevice->mPhysicalDevice, mConfig.gpuDevice->mGraphicsQueueIndex, surface, &supported);
+		RDR_ASSERT_MSG_BREAK(supported == VK_TRUE, "Vulkan: Device doesn't support required window format");
+
+		SetupSwapchain();
+	}
+
+	void Window::SetupSwapchain()
+	{
+		VkPhysicalDevice& physicalDevice = mConfig.gpuDevice->mPhysicalDevice;
+		VkDevice& device = mConfig.gpuDevice->mDevice;
+		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
+		VkSwapchainKHR& swapchain = mConfig.surfaceInfo->vkSwapchain;
+		VkResult err{};
+
+		VkSurfaceFormatKHR useFormat{};
+		{
+			bool surfaceFormatSet = false;
+
+			std::array<VkFormat, 4> formats = { 
+				VK_FORMAT_B8G8R8A8_UNORM, 
+				VK_FORMAT_R8G8B8A8_SNORM, 
+				VK_FORMAT_B8G8R8_UNORM, 
+				VK_FORMAT_R8G8B8_SNORM 
+			};
+			VkColorSpaceKHR requiredColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+
+			uint32_t count = 0;
+			vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &count, nullptr);
+			std::vector<VkSurfaceFormatKHR> surfaceFormats(count);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &count, surfaceFormats.data());
+			RDR_ASSERT_NO_MSG_BREAK(count != 0);
+
+			for (auto& requiredFormat : formats)
+			{
+				for (auto& availableFormat : surfaceFormats)
+				{
+					if (availableFormat.format == requiredFormat && availableFormat.colorSpace == requiredColorSpace)
+					{
+						useFormat = availableFormat;
+						surfaceFormatSet = true;
+						break;
+					}
+				}
+			}
+
+			if (!surfaceFormatSet)
+			{
+				if (surfaceFormats[0].format == VK_FORMAT_UNDEFINED)
+					useFormat = { formats[0], requiredColorSpace };
+				else
+					useFormat = surfaceFormats[0];
+			}
+
+		}
+
+		VkPresentModeKHR usePresentMode{};
+		{
+			bool presentModeSet = false;
+
+			std::array<VkPresentModeKHR, 5> modes = { 
+				(VkPresentModeKHR)mConfig.presentMode,
+				(VkPresentModeKHR)PresentMode::Immediate,
+				(VkPresentModeKHR)PresentMode::Mailbox, 
+				(VkPresentModeKHR)PresentMode::Fifo, 
+				(VkPresentModeKHR)PresentMode::FifoRelaxed 
+			};
+
+			uint32_t count = 0;
+			vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count, nullptr);
+			std::vector<VkPresentModeKHR> presentModesAvailable(count);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count, presentModesAvailable.data());
+			RDR_ASSERT_NO_MSG_BREAK(count != 0);
+
+			for (auto& required : modes)
+			{
+				for (auto& available : presentModesAvailable)
+				{
+					if (required == available)
+					{
+						usePresentMode = required;
+						presentModeSet = true;
+						break;
+					}
+				}
+			}
+
+			if (!presentModeSet)
+				usePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+		}
+
+		VkSurfaceCapabilitiesKHR surfaceCapabilities{};
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCapabilities);
+
+		VkExtent2D extent = surfaceCapabilities.currentExtent;
+		if (extent.width == UINT32_MAX)
+		{
+			extent = {
+				glm::clamp(mConfig.size.x, surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.width),
+				glm::clamp(mConfig.size.y, surfaceCapabilities.maxImageExtent.height, surfaceCapabilities.maxImageExtent.height)
+			};
+		}
+
+		VkSwapchainCreateInfoKHR swapchainCreateInfo = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+		swapchainCreateInfo.imageFormat = useFormat.format;
+		swapchainCreateInfo.imageColorSpace = useFormat.colorSpace;
+		swapchainCreateInfo.presentMode = usePresentMode;
+		swapchainCreateInfo.minImageCount = surfaceCapabilities.minImageCount;
+		swapchainCreateInfo.imageExtent = extent;
+
+		swapchainCreateInfo.clipped = VK_TRUE;
+		swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // TODO add application transparency
+		swapchainCreateInfo.imageArrayLayers = 1;
+		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		swapchainCreateInfo.oldSwapchain = swapchain;
+		swapchainCreateInfo.preTransform = surfaceCapabilities.currentTransform;
+		swapchainCreateInfo.surface = surface;
+
+		err = vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain);
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create swapchain", err);
+
+		uint32_t imageCount = 0;
+		vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
+		std::vector<VkImage> images(imageCount);
+		vkGetSwapchainImagesKHR(device, swapchain, &imageCount, images.data());
+
+		VkImageViewCreateInfo imageViewCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+		imageViewCreateInfo.format = useFormat.format;
+		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+		imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+		imageViewCreateInfo.subresourceRange.layerCount = 1;
+		imageViewCreateInfo.subresourceRange.levelCount = 1;
+
+		mConfig.surfaceInfo->swapchainImages.resize(imageCount);
+		uint32_t index = 0;
+		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
+		{
+			image = imageViewCreateInfo.image = images[index];
+
+			err = vkCreateImageView(device, &imageViewCreateInfo, nullptr, &view);
+			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create image view", err);
+		}
+	}
+
+	void Window::CleanupSurface()
+	{
+		CleanupSwapchain();
+
+		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
+		vkDestroySurfaceKHR(Renderer::Get()->mRenderEngine->mVkInstance, surface, nullptr);
+
+		delete mConfig.surfaceInfo;
+	}
+
+	void Window::CleanupSwapchain()
+	{
+		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
+		{
+			vkDestroyImageView(mConfig.gpuDevice->mDevice, view, nullptr);
+		}
+
+		vkDestroySwapchainKHR(mConfig.gpuDevice->mDevice, mConfig.surfaceInfo->vkSwapchain, nullptr);
+	}
+
+	void Window::ResetSwapchain()
+	{
+		VkSwapchainKHR oldSwapchain = mConfig.surfaceInfo->vkSwapchain;
+
+		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
+		{
+			vkDestroyImageView(mConfig.gpuDevice->mDevice, view, nullptr);
+		}
+
+		SetupSwapchain();
+
+		vkDestroySwapchainKHR(mConfig.gpuDevice->mDevice, oldSwapchain, nullptr);
+	}
+
+	void Window::Update()
+	{
+
 	}
 }

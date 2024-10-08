@@ -14,8 +14,18 @@ namespace rdr
 		Disabled      =  0x00034003,
 	};
 
-	class GPUDevice;
-	using GPUDeviceHandle = GPUDevice*;
+	enum class PresentMode
+	{
+		Immediate = 0,
+		Mailbox = 1,
+		Fifo = 2,
+		FifoRelaxed = 3,
+	};
+
+	struct GPU;
+	using GPUHandle = GPU*;
+
+	struct WindowSurfaceInformation;
 
 	struct WindowConfiguration
 	{
@@ -29,7 +39,7 @@ namespace rdr
         bool fullscreen = false;
         bool resizable = true;
 
-        bool vsync = true;
+        PresentMode presentMode = PresentMode::Fifo;
 
 		CursorState cursor = CursorState::Normal;
 
@@ -39,8 +49,10 @@ namespace rdr
         bool decorated = true;
 
 		EventCallbackFunction eventCallbacks[EventType::EventCount];
+		std::function<void(void)> windowResizeFn = nullptr;
 
-		GPUDeviceHandle gpuDevice = nullptr;
+		GPUHandle gpuDevice = nullptr;
+		WindowSurfaceInformation* surfaceInfo = nullptr;
 	};	
 
 	class RDRAPI Window
@@ -60,7 +72,7 @@ namespace rdr
 		void SetTitle(std::string_view title);
 		void SetFullscreen(bool isFullscreen);
 		void SetResizable(bool isResizable);
-		void SetVsync(bool isVsyncOn);
+		void SetPresentMode(PresentMode presentMode);
 		void SetCursor(CursorState cursor);
 		void SetMinimized(bool isMinimized);
 		void SetMaximized(bool isMaximized);
@@ -81,8 +93,15 @@ namespace rdr
 		float GetMouseX() const;
 		float GetMouseY() const;
 
+		void ResetSwapchain();
+
 	private:
 		void Init();
+		void SetupSurface();
+		void SetupSwapchain();
+		void CleanupSurface();
+		void CleanupSwapchain();
+
 		void RegisterCallback(EventID eventType, EventCallbackFunction callback);
 
 		GLFWwindow* mGlfwWindow;

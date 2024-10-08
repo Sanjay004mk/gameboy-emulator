@@ -26,6 +26,8 @@ namespace utils
 				config.size.x = (uint32_t)width;
 				config.size.y = (uint32_t)height;
 
+				config.windowResizeFn();
+
 				rdr::WindowResizeEvent event(config.size.x, config.size.y);
 				config.eventCallbacks[rdr::EventType::WindowResize](event);
 			});
@@ -148,6 +150,7 @@ namespace rdr
 	Window::~Window()
 	{
 		RDR_LOG_INFO("Destroying Window: [{}]", mConfig.title);
+		CleanupSurface();
 		glfwDestroyWindow(mGlfwWindow);
 	}
 
@@ -163,9 +166,12 @@ namespace rdr
 		GLFWmonitor* monitor = mConfig.fullscreen ? glfwGetPrimaryMonitor() : nullptr;
 		mGlfwWindow = glfwCreateWindow(mConfig.size.x, mConfig.size.y, mConfig.title.c_str(), monitor, nullptr);
 
-		glm::ivec2 newSize{};
-		glfwGetWindowSize(mGlfwWindow, &newSize.x, &newSize.y);
-		mConfig.size = newSize;
+		if (mConfig.maximized) // update width and height as window is maximized
+		{
+			glm::ivec2 newSize{};
+			glfwGetFramebufferSize(mGlfwWindow, &newSize.x, &newSize.y);
+			mConfig.size = newSize;
+		}
 
 		if (!mConfig.maximized)
 			glfwSetWindowPos(mGlfwWindow, mConfig.position.x, mConfig.position.y);
@@ -209,6 +215,10 @@ namespace rdr
 
 		if (!mConfig.gpuDevice)
 			mConfig.gpuDevice = Renderer::GetPrimaryGPU();
+
+		mConfig.windowResizeFn = [this]() { this->ResetSwapchain(); };
+
+		SetupSurface();
 	}
 
 	void Window::RegisterCallback(EventID eventType, EventCallbackFunction callback)
@@ -220,11 +230,6 @@ namespace rdr
 	{
 		for (size_t i = 0; i < sizeof(mConfig.eventCallbacks) / sizeof(mConfig.eventCallbacks[0]); i++)
 			mConfig.eventCallbacks[i] = callback;
-	}
-
-	void Window::Update()
-	{
-
 	}
 
 	bool Window::ShouldClose() const
@@ -268,10 +273,11 @@ namespace rdr
 		glfwSetWindowAttrib(mGlfwWindow, GLFW_RESIZABLE, isResizable);
 	}
 
-	void Window::SetVsync(bool isVsyncOn)
+	void Window::SetPresentMode(PresentMode mode)
 	{
-		// TODO
-		mConfig.vsync = isVsyncOn;
+		mConfig.presentMode = mode;
+
+		ResetSwapchain();
 	}
 
 	void Window::SetCursor(CursorState cursor)

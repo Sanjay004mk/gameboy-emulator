@@ -5,36 +5,37 @@
 
 namespace rdr
 {
-	class GPUDevice
+	struct GPU
 	{
-	public:
-		GPUDevice(VkPhysicalDevice device);
-		~GPUDevice();
+		GPU(VkPhysicalDevice device);
+		~GPU();
 
-	private:
 		VkPhysicalDevice mPhysicalDevice = nullptr;
 		VkDevice mDevice = nullptr;
 
 		uint32_t mGraphicsQueueIndex = -1;
 	};
 
-	class RenderEngine
+	struct RenderEngine
 	{
-	public:
 		RenderEngine(const RendererConfiguration& config);
 		~RenderEngine();
 
-	private:
 		VkInstance mVkInstance = nullptr;
 
 #if defined(RDR_DEBUG)
 		VkDebugUtilsMessengerEXT mDebugUtilsMessenger = nullptr;
 #endif
 
-		GPUDevice* mPrimaryDevice = nullptr;
-		GPUDevice* mWorkerDevices = nullptr;
+		GPU* mPrimaryDevice = nullptr;
+		GPU* mWorkerDevices = nullptr;
+	};
 
-		friend class Renderer;
+	struct WindowSurfaceInformation
+	{
+		VkSurfaceKHR vkSurface;
+		VkSwapchainKHR vkSwapchain;
+		std::vector<std::pair<VkImage, VkImageView>> swapchainImages;
 	};
 }
 
