@@ -14,6 +14,7 @@ namespace rdr
 		VkDevice mDevice = nullptr;
 
 		uint32_t mGraphicsQueueIndex = -1;
+		VkQueue mGraphicsQueue = nullptr;
 	};
 
 	struct RenderEngine

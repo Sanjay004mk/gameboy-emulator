@@ -1,6 +1,7 @@
 #include <renderer/rdrpch.h>
 
 #include "renderer/rdr.h"
+#include "renderer/time.h"
 
 #include "renderengine.h"
 
@@ -8,8 +9,14 @@
 
 #include <glm/glm.hpp>
 
+
 namespace rdr
 {
+	// tmp
+	static VkCommandPool pool;
+	static std::vector<VkCommandBuffer> commandBuffers;
+	static VkFence fence;
+
 	Renderer::Renderer(const RendererConfiguration& config)
 		: mConfig(config)
 	{
@@ -256,13 +263,38 @@ namespace rdr
 			
 			err = vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create logical device", err);
+
+			vkGetDeviceQueue(mDevice, mGraphicsQueueIndex, 0, &mGraphicsQueue);
 		}
 
 		RDR_LOG_INFO("Vulkan: Created logical device");
+
+		// tmp
+		{
+			VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+			poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+			poolCreateInfo.queueFamilyIndex = mGraphicsQueueIndex;
+			err = vkCreateCommandPool(mDevice, &poolCreateInfo, nullptr, &pool);
+			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
+
+			VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+			
+			vkCreateFence(mDevice, &fenceCreateInfo, nullptr, &fence);
+		}
 	}
 
 	GPU::~GPU()
 	{
+		// tmp
+		{
+			if (commandBuffers.size() > 0)
+				vkFreeCommandBuffers(mDevice, pool, (uint32_t)commandBuffers.size(), commandBuffers.data());
+
+			vkDestroyFence(mDevice, fence, nullptr);
+
+			vkDestroyCommandPool(mDevice, pool, nullptr);
+		}
+
 		vkDestroyDevice(mDevice, nullptr);
 	}
 
@@ -317,6 +349,8 @@ namespace rdr
 						break;
 					}
 				}
+				if (surfaceFormatSet)
+					break;
 			}
 
 			if (!surfaceFormatSet)
@@ -335,10 +369,10 @@ namespace rdr
 
 			std::array<VkPresentModeKHR, 5> modes = { 
 				(VkPresentModeKHR)mConfig.presentMode,
-				(VkPresentModeKHR)PresentMode::Immediate,
-				(VkPresentModeKHR)PresentMode::Mailbox, 
-				(VkPresentModeKHR)PresentMode::Fifo, 
-				(VkPresentModeKHR)PresentMode::FifoRelaxed 
+				(VkPresentModeKHR)PresentMode::NoVSync,
+				(VkPresentModeKHR)PresentMode::TripleBuffer, 
+				(VkPresentModeKHR)PresentMode::VSync, 
+				(VkPresentModeKHR)PresentMode::VSyncRelaxed
 			};
 
 			uint32_t count = 0;
@@ -358,6 +392,8 @@ namespace rdr
 						break;
 					}
 				}
+				if (presentModeSet)
+					break;
 			}
 
 			if (!presentModeSet)
@@ -387,7 +423,7 @@ namespace rdr
 		swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // TODO add application transparency
 		swapchainCreateInfo.imageArrayLayers = 1;
 		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		swapchainCreateInfo.oldSwapchain = swapchain;
 		swapchainCreateInfo.preTransform = surfaceCapabilities.currentTransform;
 		swapchainCreateInfo.surface = surface;
@@ -418,6 +454,27 @@ namespace rdr
 			err = vkCreateImageView(device, &imageViewCreateInfo, nullptr, &view);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create image view", err);
 		}
+
+		// tmp
+		{
+
+			// tmp
+			if (commandBuffers.size() > 0)
+			{
+				vkFreeCommandBuffers(mConfig.gpuDevice->mDevice, pool, (uint32_t)commandBuffers.size(), commandBuffers.data());
+				commandBuffers.resize(0);
+			}
+
+			commandBuffers.resize(mConfig.surfaceInfo->swapchainImages.size());
+
+			VkCommandBufferAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+			allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
+			allocInfo.commandPool = pool;
+			allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			err = vkAllocateCommandBuffers(mConfig.gpuDevice->mDevice, &allocInfo, commandBuffers.data());
+
+			
+		}
 	}
 
 	void Window::CleanupSurface()
@@ -438,6 +495,8 @@ namespace rdr
 		}
 
 		vkDestroySwapchainKHR(mConfig.gpuDevice->mDevice, mConfig.surfaceInfo->vkSwapchain, nullptr);
+
+		mConfig.surfaceInfo->vkSwapchain = nullptr;
 	}
 
 	void Window::ResetSwapchain()
@@ -456,6 +515,108 @@ namespace rdr
 
 	void Window::Update()
 	{
+		// tmp
 
+		vkResetFences(mConfig.gpuDevice->mDevice, 1, &fence);
+
+		uint32_t index;
+		vkAcquireNextImageKHR(
+			mConfig.gpuDevice->mDevice, 
+			mConfig.surfaceInfo->vkSwapchain, 
+			UINT64_MAX, 
+			VK_NULL_HANDLE, 
+			fence, 
+			&index
+		);
+
+		vkWaitForFences(mConfig.gpuDevice->mDevice, 1, &fence, VK_FALSE, UINT64_MAX);
+
+		{
+			uint32_t i = index;
+
+			VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+			vkResetCommandBuffer(commandBuffers[i], 0);
+
+			VkImage& image = mConfig.surfaceInfo->swapchainImages[i].first;
+			VkImageView& view = mConfig.surfaceInfo->swapchainImages[i].second;
+			vkBeginCommandBuffer(commandBuffers[i], &beginInfo);
+
+			VkClearColorValue clearColor = {
+				glm::abs(glm::sin(Time::GetTime())),
+				glm::abs(glm::sin(Time::GetTime() + glm::radians(45.f))),
+				glm::abs(glm::cos(Time::GetTime())),
+				1.0f
+			};
+
+			VkImageSubresourceRange range{};
+			range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			range.baseArrayLayer = 0;
+			range.baseMipLevel = 0;
+			range.layerCount = 1;
+			range.levelCount = 1;
+
+			VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			barrier.srcAccessMask = VK_ACCESS_NONE;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.subresourceRange = range;
+			barrier.image = image;
+
+			vkCmdPipelineBarrier(
+				commandBuffers[i],
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &barrier
+			);
+
+			vkCmdClearColorImage(
+				commandBuffers[i], 
+				image, 
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
+				&clearColor, 
+				1, 
+				&range);
+
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+			barrier.subresourceRange = range;
+			barrier.image = image;
+
+			vkCmdPipelineBarrier(
+				commandBuffers[i],
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &barrier
+			);
+
+			vkEndCommandBuffer(commandBuffers[i]);
+		}
+
+		VkSubmitInfo info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+		info.commandBufferCount = 1;
+		info.pCommandBuffers = &commandBuffers[index];
+
+		VkResult err = vkQueueSubmit(mConfig.gpuDevice->mGraphicsQueue, 1, &info, VK_NULL_HANDLE);
+
+		vkQueueWaitIdle(mConfig.gpuDevice->mGraphicsQueue);
+
+		VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+		presentInfo.swapchainCount = 1;
+		presentInfo.pSwapchains = &mConfig.surfaceInfo->vkSwapchain;
+		presentInfo.pImageIndices = &index;
+
+		vkQueuePresentKHR(mConfig.gpuDevice->mGraphicsQueue, &presentInfo);
 	}
 }

@@ -16,10 +16,10 @@ namespace rdr
 
 	enum class PresentMode
 	{
-		Immediate = 0,
-		Mailbox = 1,
-		Fifo = 2,
-		FifoRelaxed = 3,
+		NoVSync = 0,
+		TripleBuffer = 1,
+		VSync = 2,
+		VSyncRelaxed = 3,
 	};
 
 	struct GPU;
@@ -39,7 +39,7 @@ namespace rdr
         bool fullscreen = false;
         bool resizable = true;
 
-        PresentMode presentMode = PresentMode::Fifo;
+        PresentMode presentMode = PresentMode::VSync;
 
 		CursorState cursor = CursorState::Normal;
 

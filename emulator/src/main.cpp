@@ -19,6 +19,7 @@ int main(int argc, const char** argv)
     RDR_LOG_INFO("Starting Main Loop");
     while (!window->ShouldClose())
     {
+        window->Update();
         rdr::Renderer::PollEvents();
     }
 
