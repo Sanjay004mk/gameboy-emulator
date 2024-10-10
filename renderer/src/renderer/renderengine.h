@@ -10,11 +10,11 @@ namespace rdr
 		GPU(VkPhysicalDevice device);
 		~GPU();
 
-		VkPhysicalDevice mPhysicalDevice = nullptr;
-		VkDevice mDevice = nullptr;
+		VkPhysicalDevice vkPhysicalDevice = nullptr;
+		VkDevice vkDevice = nullptr;
 
-		uint32_t mGraphicsQueueIndex = -1;
-		VkQueue mGraphicsQueue = nullptr;
+		uint32_t vkGraphicsQueueIndex = -1;
+		VkQueue vkGraphicsQueue = nullptr;
 	};
 
 	struct RenderEngine
@@ -22,21 +22,49 @@ namespace rdr
 		RenderEngine(const RendererConfiguration& config);
 		~RenderEngine();
 
-		VkInstance mVkInstance = nullptr;
+		VkInstance vkInstance = nullptr;
 
 #if defined(RDR_DEBUG)
-		VkDebugUtilsMessengerEXT mDebugUtilsMessenger = nullptr;
+		VkDebugUtilsMessengerEXT vkDebugUtilsMessenger = nullptr;
 #endif
 
-		GPU* mPrimaryDevice = nullptr;
-		GPU* mWorkerDevices = nullptr;
+		GPU* primaryDevice = nullptr;
+		std::vector<GPU> workerDevices;
 	};
 
-	struct WindowSurfaceInformation
+	struct WindowCommandUnit
+	{
+		size_t size() const { return vkCommandBuffers.size(); }
+
+		VkCommandBuffer& GetCommandBuffer() { return vkCommandBuffers[frameIndex]; }
+		VkFence& GetFence() { return vkFences[frameIndex]; }
+		VkSemaphore& GetImageSemaphore() { return vkImageAcquiredSemaphores[frameIndex]; }
+		VkSemaphore& GetRenderSemaphore() { return vkRenderFinishedSemaphores[frameIndex]; }
+
+		VkCommandPool vkCommandPool;
+		std::vector<VkCommandBuffer> vkCommandBuffers;
+
+		std::vector<VkFence> vkFences;
+		std::vector<VkSemaphore> vkImageAcquiredSemaphores;
+		std::vector<VkSemaphore> vkRenderFinishedSemaphores;
+
+		uint32_t frameIndex = 0;
+
+		WindowCommandUnit& operator++(int post)
+		{
+			frameIndex = (frameIndex + 1) % size();
+			
+			return *this;
+		}
+	};
+
+	struct WindowRenderInformation
 	{
 		VkSurfaceKHR vkSurface;
 		VkSwapchainKHR vkSwapchain;
 		std::vector<std::pair<VkImage, VkImageView>> swapchainImages;
+		WindowCommandUnit commandBuffer;
+		uint32_t imageIndex = 0;
 	};
 }
 

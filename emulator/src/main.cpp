@@ -12,8 +12,24 @@ int main(int argc, const char** argv)
 
     window->RegisterCallback<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
         {
-            if (window->IsKeyDown(rdr::Key::LeftShift))
-                RDR_LOG_INFO("{}", e);
+            if (window->IsKeyDown(rdr::Key::LeftControl))
+            {
+                switch (e.GetKeyCode())
+                {
+                case rdr::Key::D1:
+                    RDR_LOG_INFO("Setting Present Mode to No vsync");
+                    window->SetPresentMode(rdr::PresentMode::NoVSync);
+                    break;
+                case rdr::Key::D2:
+                    RDR_LOG_INFO("Setting Present Mode to Triple buffered");
+                    window->SetPresentMode(rdr::PresentMode::TripleBuffer);
+                    break;
+                case rdr::Key::D3:
+                    RDR_LOG_INFO("Setting Present Mode to Vsync");
+                    window->SetPresentMode(rdr::PresentMode::VSync);
+                    break;
+                }
+            }
         });
 
     RDR_LOG_INFO("Starting Main Loop");

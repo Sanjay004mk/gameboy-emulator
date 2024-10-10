@@ -150,6 +150,8 @@ namespace rdr
 	Window::~Window()
 	{
 		RDR_LOG_INFO("Destroying Window: [{}]", mConfig.title);
+		CleanupCommandUnit();
+		CleanupSwapchain();
 		CleanupSurface();
 		glfwDestroyWindow(mGlfwWindow);
 	}
@@ -219,6 +221,8 @@ namespace rdr
 		mConfig.windowResizeFn = [this]() { this->ResetSwapchain(); };
 
 		SetupSurface();
+		SetupSwapchain();
+		SetupCommandUnit();
 	}
 
 	void Window::RegisterCallback(EventID eventType, EventCallbackFunction callback)

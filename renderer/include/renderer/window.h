@@ -25,7 +25,7 @@ namespace rdr
 	struct GPU;
 	using GPUHandle = GPU*;
 
-	struct WindowSurfaceInformation;
+	struct WindowRenderInformation;
 
 	struct WindowConfiguration
 	{
@@ -52,7 +52,7 @@ namespace rdr
 		std::function<void(void)> windowResizeFn = nullptr;
 
 		GPUHandle gpuDevice = nullptr;
-		WindowSurfaceInformation* surfaceInfo = nullptr;
+		WindowRenderInformation* surfaceInfo = nullptr;
 	};	
 
 	class RDRAPI Window
@@ -97,10 +97,13 @@ namespace rdr
 
 	private:
 		void Init();
+
 		void SetupSurface();
 		void SetupSwapchain();
+		void SetupCommandUnit();
 		void CleanupSurface();
 		void CleanupSwapchain();
+		void CleanupCommandUnit();
 
 		void RegisterCallback(EventID eventType, EventCallbackFunction callback);
 

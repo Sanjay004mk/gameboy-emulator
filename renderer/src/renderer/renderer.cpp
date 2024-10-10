@@ -12,10 +12,6 @@
 
 namespace rdr
 {
-	// tmp
-	static VkCommandPool pool;
-	static std::vector<VkCommandBuffer> commandBuffers;
-	static VkFence fence;
 
 	Renderer::Renderer(const RendererConfiguration& config)
 		: mConfig(config)
@@ -94,7 +90,7 @@ namespace rdr
 
 	const GPUHandle rdr::Renderer::GetPrimaryGPU()
 	{
-		return mRenderer->mRenderEngine->mPrimaryDevice;
+		return mRenderer->mRenderEngine->primaryDevice;
 	}
 
 	RenderEngine::RenderEngine(const RendererConfiguration& config)
@@ -132,12 +128,12 @@ namespace rdr
 			instanceCreateInfo.ppEnabledExtensionNames = extensions_ext.data();
 #endif
 
-			err = vkCreateInstance(&instanceCreateInfo, nullptr, &mVkInstance);
+			err = vkCreateInstance(&instanceCreateInfo, nullptr, &vkInstance);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create VkInstance", err);
 
 #if defined(RDR_DEBUG)
 
-			auto FNvkCreateDebugUtilsMessengerExt = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(mVkInstance, "vkCreateDebugUtilsMessengerEXT");
+			auto FNvkCreateDebugUtilsMessengerExt = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkInstance, "vkCreateDebugUtilsMessengerEXT");
 			RDR_ASSERT_NO_MSG_BREAK(FNvkCreateDebugUtilsMessengerExt);
 
 			VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = 
@@ -164,7 +160,7 @@ namespace rdr
 					return VK_FALSE;
 				};
 
-			err = FNvkCreateDebugUtilsMessengerExt(mVkInstance, &debugCreateInfo, nullptr, &mDebugUtilsMessenger);
+			err = FNvkCreateDebugUtilsMessengerExt(vkInstance, &debugCreateInfo, nullptr, &vkDebugUtilsMessenger);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create Debug messenger");
 #endif
 
@@ -174,9 +170,9 @@ namespace rdr
 		// Choosing Primary GPU
 		{
 			uint32_t count = 0;
-			vkEnumeratePhysicalDevices(mVkInstance, &count, nullptr);
+			vkEnumeratePhysicalDevices(vkInstance, &count, nullptr);
 			std::vector<VkPhysicalDevice> devices(count);
-			vkEnumeratePhysicalDevices(mVkInstance, &count, devices.data());
+			vkEnumeratePhysicalDevices(vkInstance, &count, devices.data());
 
 			RDR_ASSERT_NO_MSG_BREAK(count != 0);
 
@@ -187,34 +183,34 @@ namespace rdr
 				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
 				{
 					RDR_LOG_INFO("Vulkan: Using {} as primary GPU", properties.deviceName);
-					mPrimaryDevice = new GPU(device);
+					primaryDevice = new GPU(device);
 					break;
 				}
 			}
 
 			// TODO better device selection
-			if (!mPrimaryDevice) // default to first device
-				mPrimaryDevice = new GPU(devices[0]);
+			if (!primaryDevice) // default to first device
+				primaryDevice = new GPU(devices[0]);
 		}
 	}
 
 	RenderEngine::~RenderEngine()
 	{
-		delete mPrimaryDevice;
+		delete primaryDevice;
 
 #if defined(RDR_DEBUG)
-		auto FNvkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(mVkInstance, "vkDestroyDebugUtilsMessengerEXT");
+		auto FNvkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkInstance, "vkDestroyDebugUtilsMessengerEXT");
 		RDR_ASSERT_NO_MSG_BREAK(FNvkDestroyDebugUtilsMessengerEXT);
 
-		FNvkDestroyDebugUtilsMessengerEXT(mVkInstance, mDebugUtilsMessenger, nullptr);
+		FNvkDestroyDebugUtilsMessengerEXT(vkInstance, vkDebugUtilsMessenger, nullptr);
 #endif
 
-		vkDestroyInstance(mVkInstance, nullptr);
+		vkDestroyInstance(vkInstance, nullptr);
 		RDR_LOG_INFO("Destroyed Vulkan instance");
 	}
 
 	GPU::GPU(VkPhysicalDevice device)
-		: mPhysicalDevice(device)
+		: vkPhysicalDevice(device)
 	{
 		VkResult err{};
 		// Graphics queue
@@ -228,12 +224,12 @@ namespace rdr
 			{
 				if (properties[queueIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
 				{
-					mGraphicsQueueIndex = queueIndex;
+					vkGraphicsQueueIndex = queueIndex;
 					break;
 				}
 			}
 
-			RDR_ASSERT_MSG_BREAK(mGraphicsQueueIndex != -1, "Vulkan: Failed to find suitable graphics queue");
+			RDR_ASSERT_MSG_BREAK(vkGraphicsQueueIndex != -1, "Vulkan: Failed to find suitable graphics queue");
 		}
 
 		// Logical Device
@@ -251,7 +247,7 @@ namespace rdr
 
 			VkDeviceQueueCreateInfo queueCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
 			queueCreateInfo.queueCount = 1;
-			queueCreateInfo.queueFamilyIndex = mGraphicsQueueIndex;
+			queueCreateInfo.queueFamilyIndex = vkGraphicsQueueIndex;
 			queueCreateInfo.pQueuePriorities = priorities;
 
 			VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -261,61 +257,36 @@ namespace rdr
 			deviceCreateInfo.queueCreateInfoCount = 1;
 			deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
 			
-			err = vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice);
+			err = vkCreateDevice(vkPhysicalDevice, &deviceCreateInfo, nullptr, &vkDevice);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create logical device", err);
 
-			vkGetDeviceQueue(mDevice, mGraphicsQueueIndex, 0, &mGraphicsQueue);
+			vkGetDeviceQueue(vkDevice, vkGraphicsQueueIndex, 0, &vkGraphicsQueue);
 		}
 
 		RDR_LOG_INFO("Vulkan: Created logical device");
-
-		// tmp
-		{
-			VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-			poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-			poolCreateInfo.queueFamilyIndex = mGraphicsQueueIndex;
-			err = vkCreateCommandPool(mDevice, &poolCreateInfo, nullptr, &pool);
-			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
-
-			VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-			
-			vkCreateFence(mDevice, &fenceCreateInfo, nullptr, &fence);
-		}
 	}
 
 	GPU::~GPU()
 	{
-		// tmp
-		{
-			if (commandBuffers.size() > 0)
-				vkFreeCommandBuffers(mDevice, pool, (uint32_t)commandBuffers.size(), commandBuffers.data());
-
-			vkDestroyFence(mDevice, fence, nullptr);
-
-			vkDestroyCommandPool(mDevice, pool, nullptr);
-		}
-
-		vkDestroyDevice(mDevice, nullptr);
+		vkDestroyDevice(vkDevice, nullptr);
 	}
 
 	void Window::SetupSurface()
 	{
-		mConfig.surfaceInfo = new WindowSurfaceInformation();
+		mConfig.surfaceInfo = new WindowRenderInformation();
 		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
-		VkResult err = glfwCreateWindowSurface(Renderer::Get()->mRenderEngine->mVkInstance, mGlfwWindow, nullptr, &surface);
+		VkResult err = glfwCreateWindowSurface(Renderer::Get()->mRenderEngine->vkInstance, mGlfwWindow, nullptr, &surface);
 		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan|GLFW {}: Failed to create window surface", err);
 
 		VkBool32 supported = VK_FALSE;
-		vkGetPhysicalDeviceSurfaceSupportKHR(mConfig.gpuDevice->mPhysicalDevice, mConfig.gpuDevice->mGraphicsQueueIndex, surface, &supported);
+		vkGetPhysicalDeviceSurfaceSupportKHR(mConfig.gpuDevice->vkPhysicalDevice, mConfig.gpuDevice->vkGraphicsQueueIndex, surface, &supported);
 		RDR_ASSERT_MSG_BREAK(supported == VK_TRUE, "Vulkan: Device doesn't support required window format");
-
-		SetupSwapchain();
 	}
 
 	void Window::SetupSwapchain()
 	{
-		VkPhysicalDevice& physicalDevice = mConfig.gpuDevice->mPhysicalDevice;
-		VkDevice& device = mConfig.gpuDevice->mDevice;
+		VkPhysicalDevice& physicalDevice = mConfig.gpuDevice->vkPhysicalDevice;
+		VkDevice& device = mConfig.gpuDevice->vkDevice;
 		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
 		VkSwapchainKHR& swapchain = mConfig.surfaceInfo->vkSwapchain;
 		VkResult err{};
@@ -453,36 +424,60 @@ namespace rdr
 
 			err = vkCreateImageView(device, &imageViewCreateInfo, nullptr, &view);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create image view", err);
-		}
+		}		
+	}
 
-		// tmp
+	void Window::SetupCommandUnit()
+	{
+		size_t imageCount = mConfig.surfaceInfo->swapchainImages.size();
+		RDR_ASSERT_MSG_BREAK(imageCount != 0, "Vulkan: Creating command buffers before swapchain is created");
+
+		VkResult err{};
+		VkDevice vkDevice = mConfig.gpuDevice->vkDevice;
+
+		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
+		cb.vkCommandBuffers.resize(imageCount);
+		cb.vkFences.resize(imageCount);
+		cb.vkImageAcquiredSemaphores.resize(imageCount);
+		cb.vkRenderFinishedSemaphores.resize(imageCount);
+
+		VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+		poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		poolCreateInfo.queueFamilyIndex = mConfig.gpuDevice->vkGraphicsQueueIndex;
+
+		err = vkCreateCommandPool(vkDevice, &poolCreateInfo, nullptr, &cb.vkCommandPool);
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command pool", err);
+
+		VkCommandBufferAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+		allocInfo.commandBufferCount = (uint32_t)imageCount;
+		allocInfo.commandPool = cb.vkCommandPool;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+		err = vkAllocateCommandBuffers(vkDevice, &allocInfo, cb.vkCommandBuffers.data());
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command buffer", err);
+
+		VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+		fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+		VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+
+		for (size_t i = 0; i < imageCount; i++)
 		{
+			err = vkCreateFence(vkDevice, &fenceCreateInfo, nullptr, &cb.vkFences[i]);
+			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
 
-			// tmp
-			if (commandBuffers.size() > 0)
-			{
-				vkFreeCommandBuffers(mConfig.gpuDevice->mDevice, pool, (uint32_t)commandBuffers.size(), commandBuffers.data());
-				commandBuffers.resize(0);
-			}
+			err = vkCreateSemaphore(vkDevice, &semaphoreCreateInfo, nullptr, &cb.vkImageAcquiredSemaphores[i]);
+			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
 
-			commandBuffers.resize(mConfig.surfaceInfo->swapchainImages.size());
-
-			VkCommandBufferAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-			allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
-			allocInfo.commandPool = pool;
-			allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-			err = vkAllocateCommandBuffers(mConfig.gpuDevice->mDevice, &allocInfo, commandBuffers.data());
-
-			
+			err = vkCreateSemaphore(vkDevice, &semaphoreCreateInfo, nullptr, &cb.vkRenderFinishedSemaphores[i]);
+			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
 		}
 	}
 
 	void Window::CleanupSurface()
 	{
-		CleanupSwapchain();
-
 		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
-		vkDestroySurfaceKHR(Renderer::Get()->mRenderEngine->mVkInstance, surface, nullptr);
+		vkDestroySurfaceKHR(Renderer::Get()->mRenderEngine->vkInstance, surface, nullptr);
 
 		delete mConfig.surfaceInfo;
 	}
@@ -490,133 +485,170 @@ namespace rdr
 	void Window::CleanupSwapchain()
 	{
 		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
-		{
-			vkDestroyImageView(mConfig.gpuDevice->mDevice, view, nullptr);
-		}
-
-		vkDestroySwapchainKHR(mConfig.gpuDevice->mDevice, mConfig.surfaceInfo->vkSwapchain, nullptr);
+			vkDestroyImageView(mConfig.gpuDevice->vkDevice, view, nullptr);
+		
+		vkDestroySwapchainKHR(mConfig.gpuDevice->vkDevice, mConfig.surfaceInfo->vkSwapchain, nullptr);
 
 		mConfig.surfaceInfo->vkSwapchain = nullptr;
+	}
+
+	void Window::CleanupCommandUnit()
+	{
+		VkDevice vkDevice = mConfig.gpuDevice->vkDevice;
+
+		vkDeviceWaitIdle(vkDevice);
+
+		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
+
+		vkFreeCommandBuffers(vkDevice, cb.vkCommandPool, (uint32_t)cb.vkCommandBuffers.size(), cb.vkCommandBuffers.data());
+		cb.vkCommandBuffers.clear();
+
+		vkDestroyCommandPool(vkDevice, cb.vkCommandPool, nullptr);
+
+		for (auto& fence : cb.vkFences)
+			vkDestroyFence(vkDevice, fence, nullptr);
+		cb.vkFences.clear();
+
+		for (auto& semaphore : cb.vkImageAcquiredSemaphores)
+			vkDestroySemaphore(vkDevice, semaphore, nullptr);
+		cb.vkImageAcquiredSemaphores.clear();
+
+		for (auto& semaphore : cb.vkRenderFinishedSemaphores)
+			vkDestroySemaphore(vkDevice, semaphore, nullptr);
+		cb.vkRenderFinishedSemaphores.clear();
 	}
 
 	void Window::ResetSwapchain()
 	{
 		VkSwapchainKHR oldSwapchain = mConfig.surfaceInfo->vkSwapchain;
+		size_t oldImageCount = mConfig.surfaceInfo->swapchainImages.size();
 
 		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
-		{
-			vkDestroyImageView(mConfig.gpuDevice->mDevice, view, nullptr);
-		}
+			vkDestroyImageView(mConfig.gpuDevice->vkDevice, view, nullptr);
 
 		SetupSwapchain();
 
-		vkDestroySwapchainKHR(mConfig.gpuDevice->mDevice, oldSwapchain, nullptr);
+		if (mConfig.surfaceInfo->swapchainImages.size() != oldImageCount)
+		{
+			CleanupCommandUnit();
+			SetupCommandUnit();
+		}
+
+		vkDestroySwapchainKHR(mConfig.gpuDevice->vkDevice, oldSwapchain, nullptr);
 	}
 
 	void Window::Update()
 	{
 		// tmp
+		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
+		uint32_t& index = mConfig.surfaceInfo->imageIndex;
 
-		vkResetFences(mConfig.gpuDevice->mDevice, 1, &fence);
+		vkWaitForFences(mConfig.gpuDevice->vkDevice, 1, &cb.GetFence(), VK_TRUE, UINT64_MAX);
 
-		uint32_t index;
 		vkAcquireNextImageKHR(
-			mConfig.gpuDevice->mDevice, 
+			mConfig.gpuDevice->vkDevice, 
 			mConfig.surfaceInfo->vkSwapchain, 
 			UINT64_MAX, 
+			cb.GetImageSemaphore(),
 			VK_NULL_HANDLE, 
-			fence, 
 			&index
 		);
 
-		vkWaitForFences(mConfig.gpuDevice->mDevice, 1, &fence, VK_FALSE, UINT64_MAX);
+		vkResetFences(mConfig.gpuDevice->vkDevice, 1, &cb.GetFence());
 
-		{
-			uint32_t i = index;
+		VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-			VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkResetCommandBuffer(cb.GetCommandBuffer(), 0);
 
-			vkResetCommandBuffer(commandBuffers[i], 0);
+		VkImage& image = mConfig.surfaceInfo->swapchainImages[index].first;
+		VkImageView& view = mConfig.surfaceInfo->swapchainImages[index].second;
+		vkBeginCommandBuffer(cb.GetCommandBuffer(), &beginInfo);
 
-			VkImage& image = mConfig.surfaceInfo->swapchainImages[i].first;
-			VkImageView& view = mConfig.surfaceInfo->swapchainImages[i].second;
-			vkBeginCommandBuffer(commandBuffers[i], &beginInfo);
+		VkClearColorValue clearColor = {
+			glm::abs(glm::sin(Time::GetTime())),
+			glm::abs(glm::sin(Time::GetTime() + glm::radians(45.f))),
+			glm::abs(glm::cos(Time::GetTime())),
+			1.0f
+		};
 
-			VkClearColorValue clearColor = {
-				glm::abs(glm::sin(Time::GetTime())),
-				glm::abs(glm::sin(Time::GetTime() + glm::radians(45.f))),
-				glm::abs(glm::cos(Time::GetTime())),
-				1.0f
-			};
+		VkImageSubresourceRange range{};
+		range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		range.baseArrayLayer = 0;
+		range.baseMipLevel = 0;
+		range.layerCount = 1;
+		range.levelCount = 1;
 
-			VkImageSubresourceRange range{};
-			range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			range.baseArrayLayer = 0;
-			range.baseMipLevel = 0;
-			range.layerCount = 1;
-			range.levelCount = 1;
+		VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+		barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barrier.srcAccessMask = VK_ACCESS_NONE;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.subresourceRange = range;
+		barrier.image = image;
 
-			VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			barrier.srcAccessMask = VK_ACCESS_NONE;
-			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			barrier.subresourceRange = range;
-			barrier.image = image;
+		vkCmdPipelineBarrier(
+			cb.GetCommandBuffer(),
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &barrier
+		);
 
-			vkCmdPipelineBarrier(
-				commandBuffers[i],
-				VK_PIPELINE_STAGE_TRANSFER_BIT,
-				VK_PIPELINE_STAGE_TRANSFER_BIT,
-				0,
-				0, nullptr,
-				0, nullptr,
-				1, &barrier
-			);
+		vkCmdClearColorImage(
+			cb.GetCommandBuffer(),
+			image, 
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
+			&clearColor, 
+			1, 
+			&range);
 
-			vkCmdClearColorImage(
-				commandBuffers[i], 
-				image, 
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
-				&clearColor, 
-				1, 
-				&range);
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+		barrier.subresourceRange = range;
+		barrier.image = image;
 
-			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-			barrier.subresourceRange = range;
-			barrier.image = image;
+		vkCmdPipelineBarrier(
+			cb.GetCommandBuffer(),
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &barrier
+		);
 
-			vkCmdPipelineBarrier(
-				commandBuffers[i],
-				VK_PIPELINE_STAGE_TRANSFER_BIT,
-				VK_PIPELINE_STAGE_TRANSFER_BIT,
-				0,
-				0, nullptr,
-				0, nullptr,
-				1, &barrier
-			);
+		vkEndCommandBuffer(cb.GetCommandBuffer());
 
-			vkEndCommandBuffer(commandBuffers[i]);
-		}
+		VkPipelineStageFlags dstStageMask[] = { VK_PIPELINE_STAGE_TRANSFER_BIT };
 
 		VkSubmitInfo info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 		info.commandBufferCount = 1;
-		info.pCommandBuffers = &commandBuffers[index];
+		info.pCommandBuffers = &cb.GetCommandBuffer();
+		info.signalSemaphoreCount = 1;
+		info.pSignalSemaphores = &cb.GetRenderSemaphore();
+		info.waitSemaphoreCount = 1;
+		info.pWaitSemaphores = &cb.GetImageSemaphore();
+		info.pWaitDstStageMask = dstStageMask;
 
-		VkResult err = vkQueueSubmit(mConfig.gpuDevice->mGraphicsQueue, 1, &info, VK_NULL_HANDLE);
+		VkResult err = vkQueueSubmit(mConfig.gpuDevice->vkGraphicsQueue, 1, &info, cb.GetFence());
 
-		vkQueueWaitIdle(mConfig.gpuDevice->mGraphicsQueue);
+		vkQueueWaitIdle(mConfig.gpuDevice->vkGraphicsQueue);
 
 		VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = &mConfig.surfaceInfo->vkSwapchain;
 		presentInfo.pImageIndices = &index;
+		presentInfo.waitSemaphoreCount = 1;
+		presentInfo.pWaitSemaphores = &cb.GetRenderSemaphore();
 
-		vkQueuePresentKHR(mConfig.gpuDevice->mGraphicsQueue, &presentInfo);
+		vkQueuePresentKHR(mConfig.gpuDevice->vkGraphicsQueue, &presentInfo);
+
+		cb++;
 	}
 }
