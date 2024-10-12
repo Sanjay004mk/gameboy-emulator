@@ -183,14 +183,14 @@ namespace rdr
 				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
 				{
 					RDR_LOG_INFO("Vulkan: Using {} as primary GPU", properties.deviceName);
-					primaryDevice = new GPU(device);
+					primaryDevice = new GPU(vkInstance, device);
 					break;
 				}
 			}
 
 			// TODO better device selection
 			if (!primaryDevice) // default to first device
-				primaryDevice = new GPU(devices[0]);
+				primaryDevice = new GPU(vkInstance, devices[0]);
 		}
 	}
 
@@ -209,7 +209,7 @@ namespace rdr
 		RDR_LOG_INFO("Destroyed Vulkan instance");
 	}
 
-	GPU::GPU(VkPhysicalDevice device)
+	GPU::GPU(VkInstance vkInstance, VkPhysicalDevice device)
 		: vkPhysicalDevice(device)
 	{
 		VkResult err{};
@@ -264,10 +264,23 @@ namespace rdr
 		}
 
 		RDR_LOG_INFO("Vulkan: Created logical device");
+
+		// VMA initialization
+		{
+			VmaAllocatorCreateInfo allocatorCreateInfo{};
+			allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+			allocatorCreateInfo.device = vkDevice;
+			allocatorCreateInfo.physicalDevice = vkPhysicalDevice;
+			allocatorCreateInfo.instance = vkInstance;
+
+			err = vmaCreateAllocator(&allocatorCreateInfo, &vmaAllocator);
+			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create vma allocator", err);
+		}
 	}
 
 	GPU::~GPU()
 	{
+		vmaDestroyAllocator(vmaAllocator);
 		vkDestroyDevice(vkDevice, nullptr);
 	}
 
@@ -650,5 +663,64 @@ namespace rdr
 		vkQueuePresentKHR(mConfig.gpuDevice->vkGraphicsQueue, &presentInfo);
 
 		cb++;
+	}
+
+	Buffer::Buffer(const BufferConfiguration& config, const void* data)
+		: mConfig(config)
+	{
+		VmaAllocationCreateInfo allocationCreateInfo{};
+		allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		VkBufferCreateInfo createInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+
+		mConfig.impl = new BufferImplementationInformation();
+		BufferImplementationInformation& impl = *mConfig.impl;
+
+		createInfo.size = config.size;
+		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		switch (config.type)
+		{
+		case BufferType::StagingBuffer:
+			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+			break;
+
+		case BufferType::GPUBuffer:
+			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+			break;
+
+		case BufferType::UniformBuffer:
+			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+			break;
+
+		case BufferType::VertexBuffer:
+			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+			break;
+
+		case BufferType::IndexBuffer:
+			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+			break;
+		}
+
+		vmaCreateBuffer(
+			Renderer::GetPrimaryGPU()->vmaAllocator, 
+			&createInfo, &allocationCreateInfo, 
+			&impl.vkBuffer, 
+			&impl.vmaAllocation, &impl.vmaAllocationInfo
+		);
+	}
+
+	Buffer::~Buffer()
+	{
+
+	}
+
+	Texture::Texture(const TextureConfiguration& config)
+		: mConfig(config)
+	{
+
+	}
+
+	Texture::~Texture()
+	{
+
 	}
 }

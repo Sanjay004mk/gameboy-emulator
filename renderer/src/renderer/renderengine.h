@@ -2,16 +2,18 @@
 #include "renderer/renderer.h"
 
 #include <vulkan/vulkan.h>
+#include <vma/vk_mem_alloc.h>
 
 namespace rdr
 {
 	struct GPU
 	{
-		GPU(VkPhysicalDevice device);
+		GPU(VkInstance instance, VkPhysicalDevice device);
 		~GPU();
 
 		VkPhysicalDevice vkPhysicalDevice = nullptr;
 		VkDevice vkDevice = nullptr;
+		VmaAllocator vmaAllocator = nullptr;
 
 		uint32_t vkGraphicsQueueIndex = -1;
 		VkQueue vkGraphicsQueue = nullptr;
@@ -65,6 +67,18 @@ namespace rdr
 		std::vector<std::pair<VkImage, VkImageView>> swapchainImages;
 		WindowCommandUnit commandBuffer;
 		uint32_t imageIndex = 0;
+	};
+
+	struct TextureImplementationInformation
+	{
+
+	};
+
+	struct BufferImplementationInformation
+	{
+		VkBuffer vkBuffer = nullptr;
+		VmaAllocation vmaAllocation = nullptr;
+		VmaAllocationInfo vmaAllocationInfo = {};
 	};
 }
 

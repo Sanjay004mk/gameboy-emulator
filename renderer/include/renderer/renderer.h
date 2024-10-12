@@ -2,6 +2,7 @@
 
 #include "renderer/rdrapi.h"
 #include "renderer/window.h"
+#include "renderer/texture.h"
 
 
 #include <span>
