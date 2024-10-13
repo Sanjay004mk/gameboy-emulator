@@ -15,7 +15,7 @@ namespace rdr
 		BufferImplementationInformation* impl = nullptr;
 	};
 
-	class Buffer
+	class RDRAPI Buffer
 	{
 	public:
 		Buffer(const BufferConfiguration& config, const void* data = nullptr);
@@ -30,11 +30,17 @@ namespace rdr
 		void UnMap();
 		void Flush();
 
-		static void SetDataUsingStagingBuffer(Buffer* to, const void* data, uint32_t size = 0, uint32_t offset = 0);
+		static void SetDataUsingStagingBuffer(
+			Buffer* to, 
+			const void* data, 
+			uint32_t size = 0, uint32_t offset = 0, 
+			bool async = true
+		);
 		static void Copy(
 			Buffer* to, Buffer* from, 
 			uint32_t size = std::numeric_limits<uint32_t>::max(), 
-			uint32_t srcOffset = 0, uint32_t dstOffset = 0
+			uint32_t srcOffset = 0, uint32_t dstOffset = 0, 
+			bool async = true
 		);
 
 		const BufferConfiguration& GetConfig() const { return mConfig; }

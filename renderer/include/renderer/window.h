@@ -52,7 +52,7 @@ namespace rdr
 		std::function<void(void)> windowResizeFn = nullptr;
 
 		GPUHandle gpuDevice = nullptr;
-		WindowRenderInformation* surfaceInfo = nullptr;
+		WindowRenderInformation* renderInfo = nullptr;
 	};	
 
 	class RDRAPI Window
@@ -62,7 +62,6 @@ namespace rdr
 		Window(const WindowConfiguration& conf = {});
 		~Window();
 
-		void Update();
 		bool ShouldClose() const;
 
 		const auto& GetConfig() const { return mConfig; }
@@ -107,7 +106,12 @@ namespace rdr
 
 		void RegisterCallback(EventID eventType, EventCallbackFunction callback);
 
+		void BeginFrame();
+		void EndFrame();
+
 		GLFWwindow* mGlfwWindow;
 		WindowConfiguration mConfig;
+
+		friend class Renderer;
 	};
 }

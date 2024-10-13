@@ -20,6 +20,7 @@ project "renderer"
         "%{IncludeDir.glm}",
         "%{IncludeDir.spdlog}",
         "%{IncludeDir.vma}",
+        "%{IncludeDir.stbimage}",
         "src",
     }
 

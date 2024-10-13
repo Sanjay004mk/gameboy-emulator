@@ -9,11 +9,151 @@
 
 #include <glm/glm.hpp>
 
+#include <stb_image.h>
+
+namespace utils
+{
+	static VkFormat to_vk_format(rdr::TextureFormat format)
+	{
+		if (format.isDepth)
+		{
+			if (format.channels == 2)
+				return VK_FORMAT_D24_UNORM_S8_UINT;
+			else
+				return VK_FORMAT_D16_UNORM;
+		}
+
+		static constexpr uint32_t channelStart8Bit[] = {
+			0,
+			9,
+			16,
+			23,
+			37
+		};
+
+		// TODO add bits per channel
+		uint32_t vkformat = 0;
+		vkformat += channelStart8Bit[format.channels];
+
+		uint32_t offset = 0;
+
+		if (format.type & rdr::eDataType::TInt)
+			offset += 4;
+
+		if (format.type & rdr::eDataType::Signed)
+			offset++;
+
+		if (format.reverse)
+			offset += 7;
+
+		return (VkFormat)(vkformat + offset);
+	}
+
+	static void transition_vk_image_layout(VkCommandBuffer cb, VkImage image, VkImageLayout from, VkImageLayout to)
+	{
+		VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+		barrier.image = image;
+		barrier.oldLayout = from;
+		barrier.newLayout = to;
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.layerCount = 1;
+		barrier.subresourceRange.levelCount = 1;
+
+		VkPipelineStageFlags sourceStage = 0;
+		VkPipelineStageFlags destinationStage = 0;
+
+		if (from == VK_IMAGE_LAYOUT_UNDEFINED && to == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+			barrier.srcAccessMask = VK_ACCESS_NONE;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (from == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && to == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
+		else if (from == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && to == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+		{
+			barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (from == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && to == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+		{
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (from == VK_IMAGE_LAYOUT_UNDEFINED && to == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+		{
+			barrier.srcAccessMask = VK_ACCESS_NONE;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else if (from == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && to == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+		{
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+
+			sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		else {
+			RDR_LOG_ERROR("Vulkan: Unhandled case of image layout transition!");
+			return;
+		}
+
+		vkCmdPipelineBarrier(
+			cb,
+			sourceStage, destinationStage,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &barrier
+		);
+	}
+
+	static void blit_image(VkCommandBuffer cb, VkImage src, VkImage dst, const rdr::TextureBlitInformation& blitInfo)
+	{
+		VkImageBlit imageBlit{};
+		imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageBlit.dstSubresource.baseArrayLayer = 0;
+		imageBlit.dstSubresource.layerCount = 1;
+		imageBlit.dstSubresource.mipLevel = 0;
+		imageBlit.srcSubresource = imageBlit.dstSubresource;
+		imageBlit.dstOffsets[0] = { blitInfo.dstMin.x, blitInfo.dstMin.y, 0 };
+		imageBlit.srcOffsets[0] = { blitInfo.srcMin.x, blitInfo.srcMin.y, 0 };
+		imageBlit.dstOffsets[1] = { blitInfo.dstMax.x, blitInfo.dstMax.y, 1 };
+		imageBlit.srcOffsets[1] = { blitInfo.srcMax.x, blitInfo.srcMax.y, 1 };
+
+		vkCmdBlitImage(
+			cb,
+			src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &imageBlit,
+			(VkFilter)blitInfo.filter
+		);
+	}
+}
+
 
 namespace rdr
 {
 	thread_local static GPU* primaryGPU = nullptr;
 	thread_local static VkCommandPool gPool = nullptr;
+	thread_local static Window* renderWindow = nullptr;
 
 	Renderer::Renderer(const RendererConfiguration& config)
 		: mConfig(config)
@@ -88,6 +228,38 @@ namespace rdr
 			delete window;
 			windows.erase(it);
 		}
+	}
+
+	void Renderer::BeginFrame(Window* window)
+	{
+		renderWindow = window;
+		renderWindow->BeginFrame();
+	}
+
+	void Renderer::EndFrame()
+	{
+		renderWindow->EndFrame();
+		renderWindow = nullptr;
+	}
+
+	void Renderer::Blit(Texture* srcTexture, Texture* dstTexture, const TextureBlitInformation& blitInfo)
+	{
+		utils::blit_image(
+			renderWindow->mConfig.renderInfo->commandBuffer.GetCommandBuffer(), 
+			srcTexture->GetConfig().impl->vkImage,
+			dstTexture->GetConfig().impl->vkImage,
+			blitInfo
+		);
+	}
+
+	void Renderer::BlitToWindow(Texture* texture, const TextureBlitInformation& blitInfo)
+	{
+		utils::blit_image(
+			renderWindow->mConfig.renderInfo->commandBuffer.GetCommandBuffer(),
+			texture->GetConfig().impl->vkImage,
+			renderWindow->mConfig.renderInfo->GetImage(),
+			blitInfo
+		);
 	}
 
 	const GPUHandle Renderer::GetPrimaryGPU()
@@ -414,8 +586,8 @@ namespace rdr
 
 	void Window::SetupSurface()
 	{
-		mConfig.surfaceInfo = new WindowRenderInformation();
-		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
+		mConfig.renderInfo = new WindowRenderInformation();
+		VkSurfaceKHR& surface = mConfig.renderInfo->vkSurface;
 		VkResult err = glfwCreateWindowSurface(Renderer::Get()->mRenderEngine->vkInstance, mGlfwWindow, nullptr, &surface);
 		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan|GLFW {}: Failed to create window surface", err);
 
@@ -428,15 +600,16 @@ namespace rdr
 	{
 		VkPhysicalDevice& physicalDevice = mConfig.gpuDevice->vkPhysicalDevice;
 		VkDevice& device = mConfig.gpuDevice->vkDevice;
-		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
-		VkSwapchainKHR& swapchain = mConfig.surfaceInfo->vkSwapchain;
+		VkSurfaceKHR& surface = mConfig.renderInfo->vkSurface;
+		VkSwapchainKHR& swapchain = mConfig.renderInfo->vkSwapchain;
 		VkResult err{};
 
 		VkSurfaceFormatKHR useFormat{};
 		{
 			bool surfaceFormatSet = false;
 
-			std::array<VkFormat, 4> formats = { 
+			std::array<VkFormat, 5> formats = { 
+				VK_FORMAT_B8G8R8A8_SRGB,
 				VK_FORMAT_B8G8R8A8_UNORM, 
 				VK_FORMAT_R8G8B8A8_SNORM, 
 				VK_FORMAT_B8G8R8_UNORM, 
@@ -557,9 +730,9 @@ namespace rdr
 		imageViewCreateInfo.subresourceRange.layerCount = 1;
 		imageViewCreateInfo.subresourceRange.levelCount = 1;
 
-		mConfig.surfaceInfo->swapchainImages.resize(imageCount);
+		mConfig.renderInfo->swapchainImages.resize(imageCount);
 		uint32_t index = 0;
-		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
+		for (auto& [image, view] : mConfig.renderInfo->swapchainImages)
 		{
 			image = imageViewCreateInfo.image = images[index++];
 
@@ -570,13 +743,13 @@ namespace rdr
 
 	void Window::SetupCommandUnit()
 	{
-		size_t imageCount = mConfig.surfaceInfo->swapchainImages.size();
+		size_t imageCount = mConfig.renderInfo->swapchainImages.size();
 		RDR_ASSERT_MSG_BREAK(imageCount != 0, "Vulkan: Creating command buffers before swapchain is created");
 
 		VkResult err{};
 		VkDevice vkDevice = mConfig.gpuDevice->vkDevice;
 
-		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
+		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
 		cb.vkCommandPools.resize(imageCount);
 		cb.commandBuffers.resize(imageCount);
 		cb.vkFences.resize(imageCount);
@@ -617,20 +790,20 @@ namespace rdr
 
 	void Window::CleanupSurface()
 	{
-		VkSurfaceKHR& surface = mConfig.surfaceInfo->vkSurface;
+		VkSurfaceKHR& surface = mConfig.renderInfo->vkSurface;
 		vkDestroySurfaceKHR(Renderer::Get()->mRenderEngine->vkInstance, surface, nullptr);
 
-		delete mConfig.surfaceInfo;
+		delete mConfig.renderInfo;
 	}
 
 	void Window::CleanupSwapchain()
 	{
-		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
+		for (auto& [image, view] : mConfig.renderInfo->swapchainImages)
 			vkDestroyImageView(mConfig.gpuDevice->vkDevice, view, nullptr);
 		
-		vkDestroySwapchainKHR(mConfig.gpuDevice->vkDevice, mConfig.surfaceInfo->vkSwapchain, nullptr);
+		vkDestroySwapchainKHR(mConfig.gpuDevice->vkDevice, mConfig.renderInfo->vkSwapchain, nullptr);
 
-		mConfig.surfaceInfo->vkSwapchain = nullptr;
+		mConfig.renderInfo->vkSwapchain = nullptr;
 	}
 
 	void Window::CleanupCommandUnit()
@@ -639,7 +812,7 @@ namespace rdr
 
 		vkDeviceWaitIdle(vkDevice);
 
-		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
+		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
 
 		cb.commandBuffers.clear();
 
@@ -662,15 +835,15 @@ namespace rdr
 
 	void Window::ResetSwapchain()
 	{
-		VkSwapchainKHR oldSwapchain = mConfig.surfaceInfo->vkSwapchain;
-		size_t oldImageCount = mConfig.surfaceInfo->swapchainImages.size();
+		VkSwapchainKHR oldSwapchain = mConfig.renderInfo->vkSwapchain;
+		size_t oldImageCount = mConfig.renderInfo->swapchainImages.size();
 
-		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
+		for (auto& [image, view] : mConfig.renderInfo->swapchainImages)
 			vkDestroyImageView(mConfig.gpuDevice->vkDevice, view, nullptr);
 
 		SetupSwapchain();
 
-		if (mConfig.surfaceInfo->swapchainImages.size() != oldImageCount)
+		if (mConfig.renderInfo->swapchainImages.size() != oldImageCount)
 		{
 			CleanupCommandUnit();
 			SetupCommandUnit();
@@ -679,17 +852,16 @@ namespace rdr
 		vkDestroySwapchainKHR(mConfig.gpuDevice->vkDevice, oldSwapchain, nullptr);
 	}
 
-	void Window::Update()
+	void Window::BeginFrame()
 	{
-		// tmp
-		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
-		uint32_t& index = mConfig.surfaceInfo->imageIndex;
+		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
+		uint32_t& index = mConfig.renderInfo->imageIndex;
 
 		vkWaitForFences(mConfig.gpuDevice->vkDevice, 1, &cb.GetFence(), VK_TRUE, UINT64_MAX);
 
 		vkAcquireNextImageKHR(
 			mConfig.gpuDevice->vkDevice, 
-			mConfig.surfaceInfo->vkSwapchain, 
+			mConfig.renderInfo->vkSwapchain, 
 			UINT64_MAX, 
 			cb.GetImageSemaphore(),
 			VK_NULL_HANDLE, 
@@ -699,8 +871,8 @@ namespace rdr
 		vkResetFences(mConfig.gpuDevice->vkDevice, 1, &cb.GetFence());
 		vkResetCommandPool(mConfig.gpuDevice->vkDevice, cb.GetCommandPool(), 0);
 
-		VkImage& image = mConfig.surfaceInfo->swapchainImages[index].first;
-		VkImageView& view = mConfig.surfaceInfo->swapchainImages[index].second;
+		VkImage& image = mConfig.renderInfo->swapchainImages[index].first;
+		VkImageView& view = mConfig.renderInfo->swapchainImages[index].second;
 
 		VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -708,25 +880,25 @@ namespace rdr
 		vkBeginCommandBuffer(cb.GetCommandBuffer(), &beginInfo);
 
 		VkClearColorValue clearColor = {
-			glm::abs(glm::sin(Time::GetTime())),
-			glm::abs(glm::sin(Time::GetTime() + glm::radians(45.f))),
-			glm::abs(glm::cos(Time::GetTime())),
+			0.1f,
+			0.1f,
+			0.1f,
 			1.0f
 		};
 
-		VkImageSubresourceRange range{};
-		range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		range.baseArrayLayer = 0;
-		range.baseMipLevel = 0;
-		range.layerCount = 1;
-		range.levelCount = 1;
+		VkImageSubresourceRange subresourceRange{};
+		subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		subresourceRange.baseArrayLayer = 0;
+		subresourceRange.baseMipLevel = 0;
+		subresourceRange.layerCount = 1;
+		subresourceRange.levelCount = 1;
 
 		VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 		barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 		barrier.srcAccessMask = VK_ACCESS_NONE;
 		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		barrier.subresourceRange = range;
+		barrier.subresourceRange = subresourceRange;
 		barrier.image = image;
 
 		vkCmdPipelineBarrier(
@@ -741,18 +913,35 @@ namespace rdr
 
 		vkCmdClearColorImage(
 			cb.GetCommandBuffer(),
-			image, 
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
-			&clearColor, 
-			1, 
-			&range);
+			image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			&clearColor,
+			1,
+			&subresourceRange
+		);
 
-		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	}
+
+	void Window::EndFrame()
+	{
+		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
+		uint32_t& index = mConfig.renderInfo->imageIndex;
+
+		VkImage& image = mConfig.renderInfo->swapchainImages[index].first;
+
+		VkImageSubresourceRange subresourceRange{};
+		subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		subresourceRange.baseArrayLayer = 0;
+		subresourceRange.baseMipLevel = 0;
+		subresourceRange.layerCount = 1;
+		subresourceRange.levelCount = 1;
+
+		VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 		barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		barrier.subresourceRange = range;
+		barrier.subresourceRange = subresourceRange;
 		barrier.image = image;
 
 		vkCmdPipelineBarrier(
@@ -784,7 +973,7 @@ namespace rdr
 
 		VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 		presentInfo.swapchainCount = 1;
-		presentInfo.pSwapchains = &mConfig.surfaceInfo->vkSwapchain;
+		presentInfo.pSwapchains = &mConfig.renderInfo->vkSwapchain;
 		presentInfo.pImageIndices = &index;
 		presentInfo.waitSemaphoreCount = 1;
 		presentInfo.pWaitSemaphores = &cb.GetRenderSemaphore();
@@ -883,7 +1072,7 @@ namespace rdr
 		vmaDestroyBuffer(Renderer::GetPrimaryGPU()->vmaAllocator, mConfig.impl->vkBuffer, mConfig.impl->vmaAllocation);
 	}
 
-	void Buffer::SetDataUsingStagingBuffer(Buffer* to, const void* data, uint32_t size, uint32_t offset)
+	void Buffer::SetDataUsingStagingBuffer(Buffer* to, const void* data, uint32_t size, uint32_t offset, bool async)
 	{
 		BufferConfiguration config;
 		config.size = size;
@@ -893,26 +1082,39 @@ namespace rdr
 
 		Buffer stagingBuffer(config, data);
 
-		Copy(to, &stagingBuffer, size, 0, offset);
+		Copy(to, &stagingBuffer, size, 0, offset, async);
 	}
 
-	void Buffer::Copy(Buffer* to, Buffer* from, uint32_t size, uint32_t srcOffset, uint32_t dstOffset)
+	void Buffer::Copy(Buffer* to, Buffer* from, uint32_t size, uint32_t srcOffset, uint32_t dstOffset, bool async)
 	{
 		size = glm::min(size, glm::min(to->mConfig.size, from->mConfig.size));
-
-		CommandBuffers cb;
-		cb.Init();
-		cb.Begin();
 
 		VkBufferCopy region{};
 		region.size = size;
 		region.dstOffset = dstOffset;
 		region.srcOffset = srcOffset;
 
-		vkCmdCopyBuffer(cb.Get(), from->mConfig.impl->vkBuffer, to->mConfig.impl->vkBuffer, 1, &region);
+		if (async)
+		{
+			CommandBuffers cb;
+			cb.Init();
+			cb.Begin();
 
-		cb.End();
-		cb.Submit();
+			vkCmdCopyBuffer(cb.Get(), from->mConfig.impl->vkBuffer, to->mConfig.impl->vkBuffer, 1, &region);
+
+			cb.End();
+			cb.Submit();
+		}
+		else
+		{
+			vkCmdCopyBuffer(
+				renderWindow->GetConfig().renderInfo->commandBuffer.GetCommandBuffer(), 
+				from->mConfig.impl->vkBuffer, 
+				to->mConfig.impl->vkBuffer, 
+				1, &region
+			);
+		}
+
 	}
 
 	void* Buffer::GetData() const
@@ -937,11 +1139,207 @@ namespace rdr
 	Texture::Texture(const TextureConfiguration& config)
 		: mConfig(config)
 	{
+		Init();
+	}
 
+	Texture::Texture(const char* file)
+	{
+		LoadFromFile(file);
+	}
+
+	Texture::Texture(const char* file, const TextureConfiguration& config)
+		: mConfig(config)
+	{
+		LoadFromFile(file);
+	}
+
+	void Texture::LoadFromFile(const char* file)
+	{
+		int x, y, c;
+		void* data = stbi_load(file, &x, &y, &c, STBI_rgb_alpha);
+		mConfig.format.channels = 4;
+		mConfig.size = { x, y };
+
+		Init();
+
+		SetData(data);
+		stbi_image_free(data);
+	}
+
+	void Texture::Init()
+	{
+		mConfig.impl = new TextureImplementationInformation();
+		auto& impl = *mConfig.impl;
+
+		VkImageCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+		createInfo.arrayLayers = 1;
+		createInfo.extent = { mConfig.size.x, mConfig.size.y, 1 };
+		createInfo.mipLevels = 1;
+		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		createInfo.imageType = VK_IMAGE_TYPE_2D;
+
+		// TODO
+		createInfo.tiling = VK_IMAGE_TILING_LINEAR; 
+		createInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+		if (mConfig.type.Get<TextureType::copySrc>())
+			createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+		if (mConfig.type.Get<TextureType::copyDst>())
+			createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+		if (mConfig.type.Get<TextureType::sampled>())
+			createInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+
+		if (mConfig.type.Get<TextureType::shaderOutput>())
+			if (mConfig.format.isDepth)
+				createInfo.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+			else
+				createInfo.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+		createInfo.format = utils::to_vk_format(mConfig.format);
+
+		// TODO host memory images
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+
+		vmaCreateImage(Renderer::GetPrimaryGPU()->vmaAllocator, &createInfo, &allocInfo, &impl.vkImage, &impl.vmaAllocation, nullptr);
+
+		if (mConfig.type.Get<TextureType::sampled>())
+		{
+			VkImageViewCreateInfo viewCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+			viewCreateInfo.format = createInfo.format;
+			viewCreateInfo.image = impl.vkImage;
+			viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			viewCreateInfo.subresourceRange.aspectMask = mConfig.format.isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+			viewCreateInfo.subresourceRange.baseArrayLayer = 0;
+			viewCreateInfo.subresourceRange.baseMipLevel = 0;
+			viewCreateInfo.subresourceRange.layerCount = 1;
+			viewCreateInfo.subresourceRange.levelCount = 1;
+
+			VkResult err = vkCreateImageView(Renderer::GetPrimaryGPU()->vkDevice, &viewCreateInfo, nullptr, &impl.vkImageView);
+			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create image view", err);
+		}
 	}
 
 	Texture::~Texture()
 	{
+		if (mConfig.impl->vkImageView)
+			vkDestroyImageView(Renderer::GetPrimaryGPU()->vkDevice, mConfig.impl->vkImageView, nullptr);
 
+		vmaDestroyImage(Renderer::GetPrimaryGPU()->vmaAllocator, mConfig.impl->vkImage, mConfig.impl->vmaAllocation);
+	}
+
+	size_t Texture::GetByteSize() const
+	{
+		size_t size = mConfig.size.x * mConfig.size.y;
+
+		if (mConfig.format.isDepth)
+			size *= 4;
+		else
+			size *= mConfig.format.channels;
+
+		return size;
+	}
+
+	void Texture::SetData(const void* data, bool async)
+	{
+		BufferConfiguration bufferConfig;
+		bufferConfig.size = (uint32_t)GetByteSize();
+		bufferConfig.type = BufferType::StagingBuffer;
+
+		Buffer stagingBuffer(bufferConfig, data);
+
+		SetData(&stagingBuffer, async);
+	}
+
+	void Texture::SetData(const Buffer* buffer, bool async)
+	{
+		VkBufferImageCopy range{};
+		range.imageExtent = { mConfig.size.x, mConfig.size.y, 1 };
+		range.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		range.imageSubresource.baseArrayLayer = 0;
+		range.imageSubresource.layerCount = 1;
+		range.imageSubresource.mipLevel = 0;
+			
+		VkImageLayout finalLayout = mConfig.impl->vkImageLayout = mConfig.type.Get<TextureType::sampled>() ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+		if (async)
+		{
+			CommandBuffers cb;
+			cb.Init();
+			cb.Begin();
+
+			utils::transition_vk_image_layout(cb.Get(), mConfig.impl->vkImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+			vkCmdCopyBufferToImage(cb.Get(), buffer->GetConfig().impl->vkBuffer, mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &range);
+
+			utils::transition_vk_image_layout(cb.Get(), mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout);
+
+			cb.End();
+			cb.Submit();
+		}
+		else
+		{
+			VkCommandBuffer cb = renderWindow->GetConfig().renderInfo->commandBuffer.GetCommandBuffer();
+			utils::transition_vk_image_layout(cb, mConfig.impl->vkImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+			vkCmdCopyBufferToImage(cb, buffer->GetConfig().impl->vkBuffer, mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &range);
+
+			utils::transition_vk_image_layout(cb, mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout);
+		}
+	}
+
+	void Texture::LoadDataToBuffer(Buffer* buffer, bool async)
+	{
+		VkBufferImageCopy range{};
+		range.imageExtent = { mConfig.size.x, mConfig.size.y, 1 };
+		range.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		range.imageSubresource.baseArrayLayer = 0;
+		range.imageSubresource.layerCount = 1;
+		range.imageSubresource.mipLevel = 0;
+
+		if (async)
+		{
+			CommandBuffers cb;
+			cb.Init();
+			cb.Begin();
+
+			if (mConfig.impl->vkImageLayout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+			{
+				utils::transition_vk_image_layout(cb.Get(), mConfig.impl->vkImage, mConfig.impl->vkImageLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+				mConfig.impl->vkImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			}
+
+			vkCmdCopyImageToBuffer(cb.Get(), mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer->GetConfig().impl->vkBuffer, 1, &range);
+
+			if (mConfig.type.Get<TextureType::sampled>())
+			{
+				utils::transition_vk_image_layout(cb.Get(), mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+				mConfig.impl->vkImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			}
+
+			cb.End();
+			cb.Submit();
+		}
+		else
+		{
+			VkCommandBuffer cb = renderWindow->GetConfig().renderInfo->commandBuffer.GetCommandBuffer();
+			if (mConfig.impl->vkImageLayout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+			{
+				utils::transition_vk_image_layout(cb, mConfig.impl->vkImage, mConfig.impl->vkImageLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+				mConfig.impl->vkImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			}
+
+			vkCmdCopyImageToBuffer(cb, mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer->GetConfig().impl->vkBuffer, 1, &range);
+
+			if (mConfig.type.Get<TextureType::sampled>())
+			{
+				utils::transition_vk_image_layout(cb, mConfig.impl->vkImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+				mConfig.impl->vkImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			}
+		}
 	}
 }

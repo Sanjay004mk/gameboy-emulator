@@ -4,7 +4,6 @@
 #include "renderer/window.h"
 #include "renderer/texture.h"
 
-
 #include <span>
 #include <string_view>
 
@@ -47,6 +46,11 @@ namespace rdr
 
 		static RDRAPI Window* InstantiateWindow(const WindowConfiguration& windowConfig);
 		static RDRAPI void FreeWindow(Window* window);
+
+		static RDRAPI void BeginFrame(Window* window);
+		static RDRAPI void EndFrame();
+		static RDRAPI void Blit(Texture* srcTexture, Texture* dstTexture, const TextureBlitInformation& blitInfo);
+		static RDRAPI void BlitToWindow(Texture* texture, const TextureBlitInformation& blitInfo);
 
 		// TODO add ability to choose custom device and multiple devices
 		static RDRAPI const GPUHandle GetPrimaryGPU(); //!! Set primary gpu for any new threads created before calling

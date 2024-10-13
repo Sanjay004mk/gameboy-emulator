@@ -98,6 +98,8 @@ namespace rdr
 
 	struct WindowRenderInformation
 	{
+		VkImage& GetImage() { return swapchainImages[imageIndex].first; }
+
 		VkSurfaceKHR vkSurface;
 		VkSwapchainKHR vkSwapchain;
 		std::vector<std::pair<VkImage, VkImageView>> swapchainImages;
@@ -107,7 +109,10 @@ namespace rdr
 
 	struct TextureImplementationInformation
 	{
-
+		VkImage vkImage = nullptr;
+		VkImageView vkImageView = nullptr;
+		VkImageLayout vkImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		VmaAllocation vmaAllocation = nullptr;
 	};
 
 	struct BufferImplementationInformation
