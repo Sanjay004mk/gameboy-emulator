@@ -2,14 +2,17 @@
 #include "renderer/renderer.h"
 
 #include <vulkan/vulkan.h>
-#include <vma/vk_mem_alloc.h>
+#include <vk_mem_alloc.h>
 
 namespace rdr
 {
 	struct GPU
 	{
+		GPU() = default;
 		GPU(VkInstance instance, VkPhysicalDevice device);
 		~GPU();
+
+		GPU* Init(VkInstance instance);
 
 		VkPhysicalDevice vkPhysicalDevice = nullptr;
 		VkDevice vkDevice = nullptr;
@@ -29,22 +32,55 @@ namespace rdr
 #if defined(RDR_DEBUG)
 		VkDebugUtilsMessengerEXT vkDebugUtilsMessenger = nullptr;
 #endif
+		std::vector<GPU*> allDevices;
+	};
 
-		GPU* primaryDevice = nullptr;
-		std::vector<GPU> workerDevices;
+	struct CommandBuffers
+	{
+		CommandBuffers() = default;
+		CommandBuffers(VkCommandPool commandPool, uint32_t count = 1);
+		~CommandBuffers();
+
+		void Init(VkCommandPool commandPool = nullptr, uint32_t count = 1);
+
+		void Begin(VkCommandBufferUsageFlags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, uint32_t count = 1, uint32_t index = 0);
+		void End(uint32_t count = 1, uint32_t index = 0);
+		void Submit(uint32_t count = 1, uint32_t index = 0);
+		void Submit(
+			VkSemaphore* pWaitSemaphores, 
+			uint32_t waitSemaphoresCount, 
+			VkPipelineStageFlags* pWaitDstStageFlags, 
+			VkSemaphore* pSignalSemaphores, 
+			uint32_t signalSemaphoreCount, 
+			VkFence fence = nullptr, 
+			uint32_t index = 0
+		);
+
+		template <typename Integer>
+		VkCommandBuffer& operator[](Integer i)  { return commandBuffers[i]; }
+		VkCommandBuffer& Get(uint32_t index = 0) { return commandBuffers[index]; }
+
+		const size_t size() const { return commandBuffers.size(); }
+
+		static void InitCommandPool();
+		static void DestroyCommandPool();
+
+		std::vector<VkCommandBuffer> commandBuffers;
+		VkCommandPool pool = nullptr;
 	};
 
 	struct WindowCommandUnit
 	{
-		size_t size() const { return vkCommandBuffers.size(); }
+		size_t size() const { return commandBuffers.size(); }
 
-		VkCommandBuffer& GetCommandBuffer() { return vkCommandBuffers[frameIndex]; }
+		VkCommandBuffer& GetCommandBuffer(uint32_t index = 0) { return commandBuffers[frameIndex][index]; }
+		VkCommandPool& GetCommandPool() { return vkCommandPools[frameIndex]; }
 		VkFence& GetFence() { return vkFences[frameIndex]; }
 		VkSemaphore& GetImageSemaphore() { return vkImageAcquiredSemaphores[frameIndex]; }
 		VkSemaphore& GetRenderSemaphore() { return vkRenderFinishedSemaphores[frameIndex]; }
 
-		VkCommandPool vkCommandPool;
-		std::vector<VkCommandBuffer> vkCommandBuffers;
+		std::vector<VkCommandPool> vkCommandPools;
+		std::vector<CommandBuffers> commandBuffers;
 
 		std::vector<VkFence> vkFences;
 		std::vector<VkSemaphore> vkImageAcquiredSemaphores;

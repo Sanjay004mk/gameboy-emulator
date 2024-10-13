@@ -12,6 +12,8 @@
 
 namespace rdr
 {
+	thread_local static GPU* primaryGPU = nullptr;
+	thread_local static VkCommandPool gPool = nullptr;
 
 	Renderer::Renderer(const RendererConfiguration& config)
 		: mConfig(config)
@@ -88,9 +90,29 @@ namespace rdr
 		}
 	}
 
-	const GPUHandle rdr::Renderer::GetPrimaryGPU()
+	const GPUHandle Renderer::GetPrimaryGPU()
 	{
-		return mRenderer->mRenderEngine->primaryDevice;
+		return primaryGPU;
+	}
+
+	void Renderer::SetPrimaryGPU(GPUHandle gpu)
+	{
+		primaryGPU = gpu;
+	}
+
+	const std::vector<GPUHandle>& Renderer::GetAllGPUs()
+	{
+		return Get()->mRenderEngine->allDevices;
+	}
+
+	void Renderer::InitGPU(GPUHandle gpu)
+	{
+		gpu->Init(Get()->mRenderEngine->vkInstance);
+	}
+
+	bool Renderer::IsActive(GPUHandle gpu)
+	{
+		return gpu->vkDevice;
 	}
 
 	RenderEngine::RenderEngine(const RendererConfiguration& config)
@@ -171,32 +193,43 @@ namespace rdr
 		{
 			uint32_t count = 0;
 			vkEnumeratePhysicalDevices(vkInstance, &count, nullptr);
+			RDR_ASSERT_NO_MSG_BREAK(count != 0);
+
 			std::vector<VkPhysicalDevice> devices(count);
 			vkEnumeratePhysicalDevices(vkInstance, &count, devices.data());
 
-			RDR_ASSERT_NO_MSG_BREAK(count != 0);
+			allDevices.resize(count);
+			bool primarySet = false;
 
 			VkPhysicalDeviceProperties properties{};
-			for (auto& device : devices)
+			for (uint32_t i = 0; i < count; i++)
 			{
-				vkGetPhysicalDeviceProperties(device, &properties);
-				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+				allDevices[i] = new GPU();
+				allDevices[i]->vkPhysicalDevice = devices[i];
+
+				vkGetPhysicalDeviceProperties(devices[i], &properties);
+				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && !primarySet)
 				{
 					RDR_LOG_INFO("Vulkan: Using {} as primary GPU", properties.deviceName);
-					primaryDevice = new GPU(vkInstance, device);
-					break;
+					primaryGPU = allDevices[i]->Init(vkInstance);
+					primarySet = true;
 				}
 			}
 
 			// TODO better device selection
-			if (!primaryDevice) // default to first device
-				primaryDevice = new GPU(vkInstance, devices[0]);
+			if (!primaryGPU) // default to first device
+				primaryGPU = allDevices[0]->Init(vkInstance);
 		}
+
+		// Initial global Command pool
+		CommandBuffers::InitCommandPool();
 	}
 
 	RenderEngine::~RenderEngine()
 	{
-		delete primaryDevice;
+		CommandBuffers::DestroyCommandPool();
+
+		delete primaryGPU;
 
 #if defined(RDR_DEBUG)
 		auto FNvkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkInstance, "vkDestroyDebugUtilsMessengerEXT");
@@ -212,13 +245,18 @@ namespace rdr
 	GPU::GPU(VkInstance vkInstance, VkPhysicalDevice device)
 		: vkPhysicalDevice(device)
 	{
+		Init(vkInstance);
+	}
+
+	GPU* GPU::Init(VkInstance vkInstance)
+	{
 		VkResult err{};
 		// Graphics queue
 		{
 			uint32_t count = 0;
-			vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
+			vkGetPhysicalDeviceQueueFamilyProperties(vkPhysicalDevice, &count, nullptr);
 			std::vector<VkQueueFamilyProperties> properties(count);
-			vkGetPhysicalDeviceQueueFamilyProperties(device, &count, properties.data());
+			vkGetPhysicalDeviceQueueFamilyProperties(vkPhysicalDevice, &count, properties.data());
 
 			for (uint32_t queueIndex = 0; queueIndex < count; queueIndex++)
 			{
@@ -276,12 +314,102 @@ namespace rdr
 			err = vmaCreateAllocator(&allocatorCreateInfo, &vmaAllocator);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create vma allocator", err);
 		}
+
+		return this;
 	}
 
 	GPU::~GPU()
 	{
-		vmaDestroyAllocator(vmaAllocator);
-		vkDestroyDevice(vkDevice, nullptr);
+		if (vkDevice)
+		{
+			vmaDestroyAllocator(vmaAllocator);
+			vkDestroyDevice(vkDevice, nullptr);
+		}
+	}
+
+	void CommandBuffers::InitCommandPool()
+	{
+		VkCommandPoolCreateInfo info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+		info.queueFamilyIndex = Renderer::GetPrimaryGPU()->vkGraphicsQueueIndex;
+
+		VkResult err = vkCreateCommandPool(Renderer::GetPrimaryGPU()->vkDevice, &info, nullptr, &gPool);
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command pool", err);
+	}
+
+	void CommandBuffers::DestroyCommandPool()
+	{
+		vkDestroyCommandPool(Renderer::GetPrimaryGPU()->vkDevice, gPool, nullptr);
+	}
+
+	CommandBuffers::CommandBuffers(VkCommandPool commandPool, uint32_t count)
+	{
+		Init(commandPool, count);
+	}
+
+	void CommandBuffers::Init(VkCommandPool commandPool, uint32_t count)
+	{
+		pool = commandPool == nullptr ? gPool : commandPool;
+		commandBuffers.resize(count);
+
+		VkCommandBufferAllocateInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		info.commandBufferCount = count;
+		info.commandPool = pool;
+		info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		VkResult err = vkAllocateCommandBuffers(Renderer::GetPrimaryGPU()->vkDevice, &info, commandBuffers.data());
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command buffer", err);
+	}
+
+	CommandBuffers::~CommandBuffers()
+	{
+		vkFreeCommandBuffers(Renderer::GetPrimaryGPU()->vkDevice, pool, (uint32_t)commandBuffers.size(), commandBuffers.data());
+	}
+
+	void CommandBuffers::Begin(VkCommandBufferUsageFlags flags, uint32_t count, uint32_t index)
+	{
+		vkResetCommandPool(Renderer::GetPrimaryGPU()->vkDevice, pool, 0);
+
+		VkCommandBufferBeginInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		info.flags = flags;
+
+		for (uint32_t i = index; i < index + count; i++)
+			vkBeginCommandBuffer(commandBuffers[i], &info);
+	}
+
+	void CommandBuffers::End(uint32_t count, uint32_t index)
+	{
+		for (uint32_t i = index; i < index + count; i++)
+			vkEndCommandBuffer(commandBuffers[i]);
+	}
+
+	void CommandBuffers::Submit(uint32_t count, uint32_t index)
+	{
+		VkSubmitInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		info.pCommandBuffers = &commandBuffers[index];
+		info.commandBufferCount = count;
+		VkResult err = vkQueueSubmit(Renderer::GetPrimaryGPU()->vkGraphicsQueue, 1, &info, nullptr);
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to submit command buffer", err);
+
+		vkDeviceWaitIdle(Renderer::GetPrimaryGPU()->vkDevice);
+	}
+
+	void CommandBuffers::Submit(VkSemaphore* pWaitSemaphores, uint32_t waitSemaphoresCount, VkPipelineStageFlags* pWaitDstStageFlags, VkSemaphore* pSignalSemaphores, uint32_t signalSemaphoreCount, VkFence fence, uint32_t index)
+	{
+		VkSubmitInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		info.pCommandBuffers = &commandBuffers[index];
+		info.commandBufferCount = 1;
+
+		info.pSignalSemaphores = pSignalSemaphores;
+		info.pWaitDstStageMask = pWaitDstStageFlags;
+		info.pWaitSemaphores = pWaitSemaphores;
+		info.signalSemaphoreCount = signalSemaphoreCount;
+		info.waitSemaphoreCount = waitSemaphoresCount;
+
+		VkResult err = vkQueueSubmit(Renderer::GetPrimaryGPU()->vkGraphicsQueue, 1, &info, nullptr);
+		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to submit command buffer", err);
 	}
 
 	void Window::SetupSurface()
@@ -318,9 +446,9 @@ namespace rdr
 
 			uint32_t count = 0;
 			vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &count, nullptr);
+			RDR_ASSERT_NO_MSG_BREAK(count != 0);
 			std::vector<VkSurfaceFormatKHR> surfaceFormats(count);
 			vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &count, surfaceFormats.data());
-			RDR_ASSERT_NO_MSG_BREAK(count != 0);
 
 			for (auto& requiredFormat : formats)
 			{
@@ -361,9 +489,9 @@ namespace rdr
 
 			uint32_t count = 0;
 			vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count, nullptr);
+			RDR_ASSERT_NO_MSG_BREAK(count != 0);
 			std::vector<VkPresentModeKHR> presentModesAvailable(count);
 			vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count, presentModesAvailable.data());
-			RDR_ASSERT_NO_MSG_BREAK(count != 0);
 
 			for (auto& required : modes)
 			{
@@ -433,7 +561,7 @@ namespace rdr
 		uint32_t index = 0;
 		for (auto& [image, view] : mConfig.surfaceInfo->swapchainImages)
 		{
-			image = imageViewCreateInfo.image = images[index];
+			image = imageViewCreateInfo.image = images[index++];
 
 			err = vkCreateImageView(device, &imageViewCreateInfo, nullptr, &view);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create image view", err);
@@ -449,25 +577,25 @@ namespace rdr
 		VkDevice vkDevice = mConfig.gpuDevice->vkDevice;
 
 		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
-		cb.vkCommandBuffers.resize(imageCount);
+		cb.vkCommandPools.resize(imageCount);
+		cb.commandBuffers.resize(imageCount);
 		cb.vkFences.resize(imageCount);
 		cb.vkImageAcquiredSemaphores.resize(imageCount);
 		cb.vkRenderFinishedSemaphores.resize(imageCount);
 
 		VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-		poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 		poolCreateInfo.queueFamilyIndex = mConfig.gpuDevice->vkGraphicsQueueIndex;
 
-		err = vkCreateCommandPool(vkDevice, &poolCreateInfo, nullptr, &cb.vkCommandPool);
-		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command pool", err);
+		for (auto& pool : cb.vkCommandPools)
+		{
+			err = vkCreateCommandPool(vkDevice, &poolCreateInfo, nullptr, &pool);
+			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command pool", err);
+		}
 
-		VkCommandBufferAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-		allocInfo.commandBufferCount = (uint32_t)imageCount;
-		allocInfo.commandPool = cb.vkCommandPool;
-		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-		err = vkAllocateCommandBuffers(vkDevice, &allocInfo, cb.vkCommandBuffers.data());
-		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command buffer", err);
+		for (uint32_t i = 0; i < imageCount; i++)
+		{
+			cb.commandBuffers[i].Init(cb.vkCommandPools[i], (uint32_t)imageCount); // TODO add better no. of command buffers to allocate by default
+		}
 
 		VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 		fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -513,10 +641,11 @@ namespace rdr
 
 		WindowCommandUnit& cb = mConfig.surfaceInfo->commandBuffer;
 
-		vkFreeCommandBuffers(vkDevice, cb.vkCommandPool, (uint32_t)cb.vkCommandBuffers.size(), cb.vkCommandBuffers.data());
-		cb.vkCommandBuffers.clear();
+		cb.commandBuffers.clear();
 
-		vkDestroyCommandPool(vkDevice, cb.vkCommandPool, nullptr);
+		for (auto& pool : cb.vkCommandPools)
+			vkDestroyCommandPool(vkDevice, pool, nullptr);
+		cb.vkCommandPools.clear();
 
 		for (auto& fence : cb.vkFences)
 			vkDestroyFence(vkDevice, fence, nullptr);
@@ -568,14 +697,14 @@ namespace rdr
 		);
 
 		vkResetFences(mConfig.gpuDevice->vkDevice, 1, &cb.GetFence());
+		vkResetCommandPool(mConfig.gpuDevice->vkDevice, cb.GetCommandPool(), 0);
+
+		VkImage& image = mConfig.surfaceInfo->swapchainImages[index].first;
+		VkImageView& view = mConfig.surfaceInfo->swapchainImages[index].second;
 
 		VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-		vkResetCommandBuffer(cb.GetCommandBuffer(), 0);
-
-		VkImage& image = mConfig.surfaceInfo->swapchainImages[index].first;
-		VkImageView& view = mConfig.surfaceInfo->swapchainImages[index].second;
 		vkBeginCommandBuffer(cb.GetCommandBuffer(), &beginInfo);
 
 		VkClearColorValue clearColor = {
@@ -677,28 +806,48 @@ namespace rdr
 
 		createInfo.size = config.size;
 		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		if (mConfig.enableCopy)
+			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
 		switch (config.type)
 		{
 		case BufferType::StagingBuffer:
+			mConfig.cpuVisible = true;
 			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+			if (mConfig.enableCopy)
+				createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+			allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
 			break;
 
 		case BufferType::GPUBuffer:
+			mConfig.cpuVisible = false;
 			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+			allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 			break;
 
 		case BufferType::UniformBuffer:
+			mConfig.cpuVisible = true;
 			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+			allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 			break;
 
 		case BufferType::VertexBuffer:
+			mConfig.cpuVisible = false;
 			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+			allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 			break;
 
 		case BufferType::IndexBuffer:
+			mConfig.cpuVisible = false;
 			createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+			allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 			break;
 		}
+
+		if (mConfig.persistentMap)
+			allocationCreateInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
 		vmaCreateBuffer(
 			Renderer::GetPrimaryGPU()->vmaAllocator, 
@@ -706,11 +855,83 @@ namespace rdr
 			&impl.vkBuffer, 
 			&impl.vmaAllocation, &impl.vmaAllocationInfo
 		);
+
+		if (data)
+		{
+			if (mConfig.type == BufferType::StagingBuffer || mConfig.type == BufferType::UniformBuffer)
+			{
+				if (!mConfig.persistentMap)
+					Map();
+
+				memcpy(GetData(), data, mConfig.size);
+
+				if (!mConfig.persistentMap)
+					UnMap();
+
+				if (mConfig.type == BufferType::UniformBuffer)
+					Flush();
+			}
+			else
+			{
+				SetDataUsingStagingBuffer(this, data);
+			}
+		}
 	}
 
 	Buffer::~Buffer()
 	{
+		vmaDestroyBuffer(Renderer::GetPrimaryGPU()->vmaAllocator, mConfig.impl->vkBuffer, mConfig.impl->vmaAllocation);
+	}
 
+	void Buffer::SetDataUsingStagingBuffer(Buffer* to, const void* data, uint32_t size, uint32_t offset)
+	{
+		BufferConfiguration config;
+		config.size = size;
+		config.cpuVisible = true;
+		config.persistentMap = true;
+		config.type = BufferType::StagingBuffer;
+
+		Buffer stagingBuffer(config, data);
+
+		Copy(to, &stagingBuffer, size, 0, offset);
+	}
+
+	void Buffer::Copy(Buffer* to, Buffer* from, uint32_t size, uint32_t srcOffset, uint32_t dstOffset)
+	{
+		size = glm::min(size, glm::min(to->mConfig.size, from->mConfig.size));
+
+		CommandBuffers cb;
+		cb.Init();
+		cb.Begin();
+
+		VkBufferCopy region{};
+		region.size = size;
+		region.dstOffset = dstOffset;
+		region.srcOffset = srcOffset;
+
+		vkCmdCopyBuffer(cb.Get(), from->mConfig.impl->vkBuffer, to->mConfig.impl->vkBuffer, 1, &region);
+
+		cb.End();
+		cb.Submit();
+	}
+
+	void* Buffer::GetData() const
+	{
+		return mConfig.impl->vmaAllocationInfo.pMappedData;
+	}
+
+	void Buffer::Map()
+	{
+		vmaMapMemory(Renderer::GetPrimaryGPU()->vmaAllocator, mConfig.impl->vmaAllocation, &mConfig.impl->vmaAllocationInfo.pMappedData);
+	}
+
+	void Buffer::UnMap()
+	{
+		vmaUnmapMemory(Renderer::GetPrimaryGPU()->vmaAllocator, mConfig.impl->vmaAllocation);
+	}
+	void Buffer::Flush()
+	{
+		vmaFlushAllocation(Renderer::GetPrimaryGPU()->vmaAllocator, mConfig.impl->vmaAllocation, 0, VK_WHOLE_SIZE);
 	}
 
 	Texture::Texture(const TextureConfiguration& config)

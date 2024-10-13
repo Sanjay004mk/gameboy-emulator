@@ -48,8 +48,14 @@ namespace rdr
 		static RDRAPI Window* InstantiateWindow(const WindowConfiguration& windowConfig);
 		static RDRAPI void FreeWindow(Window* window);
 
-		static RDRAPI const GPUHandle GetPrimaryGPU();
 		// TODO add ability to choose custom device and multiple devices
+		static RDRAPI const GPUHandle GetPrimaryGPU(); //!! Set primary gpu for any new threads created before calling
+		static RDRAPI void SetPrimaryGPU(GPUHandle gpu); // sets primary gpu for the calling thread only
+		static RDRAPI const std::vector<GPUHandle>& GetAllGPUs();
+		static RDRAPI void InitGPU(GPUHandle gpu);
+		static RDRAPI bool IsActive(GPUHandle gpu);
+
+		// TODO add CreateNewRenderThread fn that initializes thread_local variables
 
 	private:
 		Renderer(const RendererConfiguration& config);
