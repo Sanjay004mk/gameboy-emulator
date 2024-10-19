@@ -11,6 +11,9 @@ namespace emu
 	struct Flags
 	{
 		uint8_t& data;
+		bool ime = false;
+		bool halt = false;
+		int16_t enableImeCountdown = -1;
 		Flags(uint8_t& data)
 			: data(data)
 		{
@@ -65,10 +68,10 @@ namespace emu
 	{
 		uint8_t memory[std::numeric_limits<uint16_t>::max()] = {};
 
-		static inline uint8_t temp = 0x90; // TODO figure out why?
+		static inline uint8_t temp = 0x90;
 
 		template <typename Integer>
-		uint8_t& operator[](Integer i) 
+		uint8_t& operator[](Integer i)
 		{
 			if (i == 0xff44)
 				return temp;
@@ -76,8 +79,43 @@ namespace emu
 			return memory[i];
 		}
 
+
+		// write
+		template <typename Integer>
+		uint8_t& operator()(Integer i, uint8_t value) 
+		{
+			return (*this)[i] = value;
+		}
+
+		// read
+		template <typename Integer>
+		const uint8_t& operator[](Integer i) const
+		{
+			if (i == 0xff44)
+				return temp;
+
+			return memory[i];
+		}
+
+		// write
+		template <typename T, typename Integer>
+		T& SetAs(Integer idx, T value)
+		{
+			for (size_t i = 0; i < sizeof(T); i++)
+				(*this)(idx + i, ((uint8_t*)(&value))[i]);
+
+			return *(reinterpret_cast<T*>(&(*this)[idx]));
+		}
+
 		template <typename T, typename Integer>
 		T& As(Integer i)
+		{
+			return *(reinterpret_cast<T*>(&(*this)[i]));
+		}
+
+		// read
+		template <typename T, typename Integer>
+		const T& As(Integer i) const
 		{
 			return *(reinterpret_cast<T*>(&(*this)[i]));
 		}
@@ -86,6 +124,8 @@ namespace emu
 	class CPU
 	{
 	public:
+		static inline constexpr uint64_t frequency = 4194304;
+
 		CPU();
 		~CPU();
 
@@ -94,6 +134,9 @@ namespace emu
 	private:
 		uint32_t step();
 		uint32_t prefix();
+
+		void handleInterrupts();
+		void updateTimer(uint32_t cycles);
 
 		template <typename Word>
 		uint32_t mv(Word& target, Word& source)
@@ -117,7 +160,7 @@ namespace emu
 		template <typename Word, bool inc = false, bool dec = false>
 		uint32_t stc(Word& reg)
 		{
-			memory[reg] = memory[pc++];
+			memory(reg, memory[pc++]);
 
 			if constexpr (inc)
 				reg++;
@@ -130,7 +173,7 @@ namespace emu
 		template <typename Word, bool inc = false, bool dec = false>
 		uint32_t str(uint16_t& addr, Word& reg)
 		{
-			memory.As<Word>(addr) = reg;
+			memory.SetAs<Word>(addr, reg);
 
 			if constexpr (inc)
 				addr++;
@@ -571,7 +614,7 @@ namespace emu
 			if constexpr (condition)
 			{
 				sp -= 2;
-				memory.As<uint16_t>(sp) = pc + 2;
+				memory.SetAs<uint16_t>(sp, pc + 2);
 				pc = memory.As<uint16_t>(pc);
 
 				return 24;
@@ -583,14 +626,18 @@ namespace emu
 			}
 		}
 
-		template <bool condition = true>
+		template <bool condition = true, bool check = true>
 		uint32_t ret()
 		{
 			if constexpr (condition)
 			{
 				pc = memory.As<uint16_t>(sp);
 				sp += 2;
-				return 20;
+
+				if constexpr (check)
+					return 20;
+				else
+					return 16;
 			}
 			else
 			{
@@ -600,20 +647,23 @@ namespace emu
 
 		uint32_t di()
 		{
-			// TODO di
-			return -1;
+			flags.ime = false;
+			flags.enableImeCountdown = -1;
+
+			return 4;
 		}
 
 		uint32_t ei()
 		{
-			// TODO ei
-			return -1;
+			flags.enableImeCountdown = 2;
+			return 4;
 		}
 
 		uint32_t reti()
 		{
-			// TODO reti
-			return -1;
+			ei();
+			ret<true, false>();
+			return 16;
 		}
 
 		template <typename Word>
@@ -631,7 +681,7 @@ namespace emu
 		{
 			static_assert(sizeof(Word) == 2);
 			sp -= 2;
-			memory.As<Word>(sp) = reg;
+			memory.SetAs<Word>(sp, reg);
 
 			return 16;
 		}
@@ -643,16 +693,9 @@ namespace emu
 			flags.setz(false);
 			flags.setn(false);
 
-			if (offs > 0)
-			{
-				flags.seth(((sp & 0xf) + (offs & 0xf)) & 0x10);
-				flags.setc((sp + offs) & 0x100);
-			}
-			else
-			{
-				flags.seth((sp & 0xf) < (offs & 0xf));
-				flags.setc((sp & 0xff) < offs);
-			}
+			flags.seth(((sp & 0xf) + (memory[pc - 1] & 0xf)) > 0xf);
+			flags.setc(((sp & 0xff) + (memory[pc - 1])) > 0xff);
+
 			sp += offs;
 			return 16;
 		}
@@ -664,35 +707,37 @@ namespace emu
 			flags.setz(false);
 			flags.setn(false);
 
-			if (offs > 0)
-			{
-				flags.seth(((sp & 0xf) + (offs & 0xf)) & 0x10);
-				flags.setc((sp + offs) & 0x100);
-			}
-			else
-			{
-				flags.seth((sp & 0xf) < (offs & 0xf));
-				flags.setc((sp & 0xff) < offs);
-			}
-			reg = sp;
+			flags.seth(((sp & 0xf) + (memory[pc - 1] & 0xf)) > 0xf);
+			flags.setc(((sp & 0xff) + (memory[pc - 1])) > 0xff);
+
+			reg = (sp + offs);
 
 			return 12;
 		}
 
 		uint32_t daa()
 		{
-			uint8_t adj = 0;
 
-			if (flags.h() || ((((AF.hi & 0x0f) > 9)) && !flags.n()))
-				adj |= 0x06;
-			if (flags.c() || ((((AF.hi & 0xf0) > (9 << 4))) && !flags.n()))
+			if (!flags.n())
 			{
-				adj |= 0x60;
-				flags.setc(true);
+				if (flags.c() || ((AF.hi) > (0x99)))
+				{
+					AF.hi += 0x60;
+					flags.setc(true);
+				}
+				if (flags.h() || ((AF.hi & 0x0f) > 0x09))
+					AF.hi += 0x06;
+			}
+			else
+			{
+				if (flags.c())
+				{
+					AF.hi -= 0x60;
+				}
+				if (flags.h())
+					AF.hi -= 0x06;
 			}
 
-			int32_t res = AF.hi + (flags.n() ? -adj : adj);
-			AF.hi = (uint8_t)res;
 			flags.setz((AF.hi == 0));
 			flags.seth(false);
 
@@ -726,10 +771,13 @@ namespace emu
 			return 4;
 		}
 
+		template <uint16_t addr>
 		uint32_t rst()
 		{
-			// TODO 
-			return -1;
+			sp -= 2;
+			memory.SetAs<uint16_t>(sp, pc);
+			pc = addr;
+			return 16;
 		}
 
 		Memory memory = {};

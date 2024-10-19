@@ -12,37 +12,37 @@ namespace emu
 		: flags(AF.lo)
 	{
 		{
-			memory[0xFF05] = 0x00;
-			memory[0xFF06] = 0x00;
-			memory[0xFF07] = 0x00;
-			memory[0xFF10] = 0x80;
-			memory[0xFF11] = 0xBF;
-			memory[0xFF12] = 0xF3;
-			memory[0xFF14] = 0xBF;
-			memory[0xFF16] = 0x3F;
-			memory[0xFF17] = 0x00;
-			memory[0xFF19] = 0xBF;
-			memory[0xFF1A] = 0x7F;
-			memory[0xFF1B] = 0xFF;
-			memory[0xFF1C] = 0x9F;
-			memory[0xFF1E] = 0xBF;
-			memory[0xFF20] = 0xFF;
-			memory[0xFF21] = 0x00;
-			memory[0xFF22] = 0x00;
-			memory[0xFF23] = 0xBF;
-			memory[0xFF24] = 0x77;
-			memory[0xFF25] = 0xF3;
-			memory[0xFF26] = 0xF1;
-			memory[0xFF40] = 0x91;
-			memory[0xFF42] = 0x00;
-			memory[0xFF43] = 0x00;
-			memory[0xFF45] = 0x00;
-			memory[0xFF47] = 0xFC;
-			memory[0xFF48] = 0xFF;
-			memory[0xFF49] = 0xFF;
-			memory[0xFF4A] = 0x00;
-			memory[0xFF4B] = 0x00;
-			memory[0xFFFF] = 0x00;
+			memory(0xFF05, 0x00);
+			memory(0xFF06, 0x00);
+			memory(0xFF07, 0x00);
+			memory(0xFF10, 0x80);
+			memory(0xFF11, 0xBF);
+			memory(0xFF12, 0xF3);
+			memory(0xFF14, 0xBF);
+			memory(0xFF16, 0x3F);
+			memory(0xFF17, 0x00);
+			memory(0xFF19, 0xBF);
+			memory(0xFF1A, 0x7F);
+			memory(0xFF1B, 0xFF);
+			memory(0xFF1C, 0x9F);
+			memory(0xFF1E, 0xBF);
+			memory(0xFF20, 0xFF);
+			memory(0xFF21, 0x00);
+			memory(0xFF22, 0x00);
+			memory(0xFF23, 0xBF);
+			memory(0xFF24, 0x77);
+			memory(0xFF25, 0xF3);
+			memory(0xFF26, 0xF1);
+			memory(0xFF40, 0x91);
+			memory(0xFF42, 0x00);
+			memory(0xFF43, 0x00);
+			memory(0xFF45, 0x00);
+			memory(0xFF47, 0xFC);
+			memory(0xFF48, 0xFF);
+			memory(0xFF49, 0xFF);
+			memory(0xFF4A, 0x00);
+			memory(0xFF4B, 0x00);
+			memory(0xFFFF, 0x00);
 		}
 
 		// read boot rom
@@ -57,6 +57,27 @@ namespace emu
 		}
 
 		logfile.open("instr.log", std::ios::out);
+
+		logfile << "A:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.hi << " ";
+		logfile << "F:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.lo << " ";
+
+		logfile << "B:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)BC.hi << " ";
+		logfile << "C:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)BC.lo << " ";
+
+		logfile << "D:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)DE.hi << " ";
+		logfile << "E:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)DE.lo << " ";
+
+		logfile << "H:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)HL.hi << " ";
+		logfile << "L:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)HL.lo << " ";
+
+		logfile << "SP:" << std::setfill('0') << std::setw(4) << std::hex << std::uppercase << sp << " ";
+		logfile << "PC:" << std::setfill('0') << std::setw(4) << std::hex << std::uppercase << pc << " ";
+
+		logfile << "PCMEM:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc];
+		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 1];
+		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 2];
+		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 3];
+		logfile << std::endl;
 	}
 
 	CPU::~CPU()
@@ -69,6 +90,34 @@ namespace emu
 
 	bool CPU::Update()
 	{
+		cur = rdr::Time::GetTime();
+		if (cur - last > 1.f)
+		{
+			last = cur;
+			RDR_LOG_INFO("{} instr/sec\t {} cycles", instrcount, cycles);
+			cycles = 0;
+		}
+
+		uint32_t stepCycle = 1;
+		
+		if (!flags.halt)
+			stepCycle = step();
+
+		cycles += stepCycle;
+		instrcount++;
+
+		if (memory[0xff02] == 0x81)
+		{
+			std::cout << memory.As<char>(0xff01);
+			memory(0xff02, 0);
+		}
+
+		if (flags.enableImeCountdown > 0)
+		{
+			if ((--flags.enableImeCountdown) == 0)
+				flags.ime = true;
+		}
+
 		/*logfile << "A:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.hi << " ";
 		logfile << "F:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.lo << " ";
 
@@ -90,23 +139,103 @@ namespace emu
 		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 3];
 		logfile << std::endl;*/
 
-		cur = rdr::Time::GetTime();
-		if (cur - last > 1.f)
-		{
-			last = cur;
-			RDR_LOG_INFO("{} instr/sec\t {} cycles", instrcount, cycles);
-			cycles = 0;
-		}
+		updateTimer(stepCycle);
+		handleInterrupts();
 
-		cycles += step();
-		instrcount++;
-
-		if (memory[0xff02] == 0x81)
-		{
-			std::cout << memory.As<char>(0xff01);
-			memory[0xff02] = 0;
-		}
 		return false;
+	}
+
+	void CPU::handleInterrupts()
+	{
+		if (memory[0xffff] & memory[0xff0f] && flags.halt)
+			flags.halt = false;
+
+		if (flags.ime)
+		{
+			uint8_t interrupts = memory[0xffff] & memory[0xff0f];
+
+			uint32_t index = 0;
+			while (interrupts && index < 5)
+			{
+				if (interrupts & 0x1)
+				{
+					flags.ime = false;
+					sp -= 2;
+					memory.SetAs<uint16_t>(sp, pc);
+					memory(0xff0f, memory[0xff0f] & ~(1 << index));
+
+					switch (index)
+					{
+					case 0: // V-Blank
+						pc = 0x40;
+						break;
+					case 1: // LCD STAT
+						pc = 0x48;
+						break;
+					case 2: // Timer
+						pc = 0x50;
+						break;
+					case 3: // Serial
+						pc = 0x58;
+						break;
+					case 4: // Joypad
+						pc = 0x60;
+						break;
+					}
+
+					break; // interrupt handled
+				}
+				index++;
+				interrupts >>= 1;
+			}
+
+		}
+	}
+
+	void CPU::updateTimer(uint32_t cycles)
+	{
+		static uint32_t divCycle = 0, timerCycles = 0;
+		
+		// increment divider clock every 256 cycles <=> 16384 times / sec
+		if ((divCycle += cycles) >= 256)
+		{
+			divCycle -= 256;
+			memory.memory[0xff04]++;
+		}
+
+		if (memory.memory[0xff07] & 0x4) // Timer enabled
+		{
+			timerCycles += cycles;
+
+			uint32_t rate = memory.memory[0xff07] & 3;
+			uint32_t freq = 0;
+			switch (rate)
+			{
+			case 0:
+				freq = 1024;
+				break;
+			case 1:
+				freq = 16;
+				break;
+			case 2:
+				freq = 64;
+				break;
+			case 3:
+				freq = 256;
+				break;
+			}
+
+			while (timerCycles >= freq)
+			{
+				memory.memory[0xff05]++;
+				if (memory.memory[0xff05] == 0x0)
+				{
+					memory.memory[0xff05] = memory.memory[0xff06];
+					memory.memory[0xff0f] |= 4;
+				}
+				timerCycles -= freq;
+			}
+		}
 	}
 
 	uint32_t CPU::step()
@@ -152,7 +281,7 @@ break;
 				cycles = (rlc<uint8_t, true>(AF.hi));
 				});
 			HANDLE_OP(0x08, {
-				memory.As<uint16_t>(pc) = sp;
+				memory.SetAs<uint16_t>(memory.As<uint16_t>(pc), sp);
 				pc += 2;
 				cycles = 20;
 				});
@@ -492,7 +621,8 @@ break;
 				cycles = str(HL.b16, HL.lo);
 				});
 			HANDLE_OP(0x76, {
-				cycles = 4; // TODO: instruction: HALT
+				flags.halt = true;
+				cycles = 4; 
 				});
 			HANDLE_OP(0x77, {
 				cycles = str(HL.b16, AF.hi);
@@ -740,13 +870,13 @@ break;
 				cycles = (add<uint8_t, false, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xc7, {
-				cycles = rst();
+				cycles = rst<0x00>();
 				});
 			HANDLE_OP(0xc8, {
 				cycles = flags.z() ? ret() : ret<false>();
 				});
 			HANDLE_OP(0xc9, {
-				cycles = ret();
+				cycles = (ret<true, false>());
 				});
 			HANDLE_OP(0xca, {
 				cycles = flags.z() ? jp() : jp<false>();
@@ -761,7 +891,7 @@ break;
 				cycles = (add<uint8_t, true, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xcf, {
-				cycles = rst();
+				cycles = rst<0x08>();
 				});
 
 			HANDLE_OP(0xd0, {
@@ -786,7 +916,7 @@ break;
 				cycles = (sub<uint8_t, false, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xd7, {
-				cycles = rst();
+				cycles = rst<0x10>();
 				});
 			HANDLE_OP(0xd8, {
 				cycles = flags.c() ? ret() : ret<false>();
@@ -810,7 +940,7 @@ break;
 				cycles = (sub<uint8_t, true, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xdf, {
-				cycles = rst();
+				cycles = rst<0x18>();
 				});
 
 			HANDLE_OP(0xe0, {
@@ -837,7 +967,7 @@ break;
 				cycles = (opand<uint8_t, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xe7, {
-				cycles = rst();
+				cycles = rst<0x20>();
 				});
 			HANDLE_OP(0xe8, {
 				cycles = addsp();
@@ -862,7 +992,7 @@ break;
 				cycles = (opxor<uint8_t, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xef, {
-				cycles = rst();
+				cycles = rst<0x28>();
 				});
 
 			HANDLE_OP(0xf0, {
@@ -871,6 +1001,7 @@ break;
 				});
 			HANDLE_OP(0xf1, {
 				cycles = pop(AF.b16);
+				AF.lo &= 0xf0;
 				});
 			HANDLE_OP(0xf2, {
 				uint16_t addr = 0xff00 + BC.lo;
@@ -889,7 +1020,7 @@ break;
 				cycles = (opor<uint8_t, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xf7, {
-				cycles = rst();
+				cycles = rst<0x30>();
 				});
 			HANDLE_OP(0xf8, {
 				cycles = ldsp(HL.b16);
@@ -914,7 +1045,7 @@ break;
 				cycles = (cp<uint8_t, true>(AF.hi, memory[pc++]));
 				});
 			HANDLE_OP(0xff, {
-				cycles = rst();
+				cycles = rst<0x38>();
 				});
 		}
 
