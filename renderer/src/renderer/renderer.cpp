@@ -160,7 +160,7 @@ namespace rdr
 	{
 		// GLFW initialization
 		{
-			RDR_LOG_INFO("Initializing GLFW");
+			RDR_LOG_TRACE("Initializing GLFW");
 			int result = glfwInit();
 			RDR_ASSERT_MSG_BREAK(result == GLFW_TRUE, "Failed to initialize GLFW");
 
@@ -181,7 +181,7 @@ namespace rdr
 
 	Renderer::~Renderer()
 	{
-		RDR_LOG_INFO("Shutting down Renderer");
+		RDR_LOG_TRACE("Shutting down Renderer");
 
 		delete mRenderEngine;
 
@@ -358,7 +358,7 @@ namespace rdr
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create Debug messenger");
 #endif
 
-			RDR_LOG_INFO("Created Vulkan Instance");
+			RDR_LOG_TRACE("Created Vulkan Instance");
 		}
 
 		// Choosing Primary GPU
@@ -382,7 +382,7 @@ namespace rdr
 				vkGetPhysicalDeviceProperties(devices[i], &properties);
 				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && !primarySet)
 				{
-					RDR_LOG_INFO("Vulkan: Using {} as primary GPU", properties.deviceName);
+					RDR_LOG_TRACE("Vulkan: Using {} as primary GPU", properties.deviceName);
 					primaryGPU = allDevices[i]->Init(vkInstance);
 					primarySet = true;
 				}
@@ -411,7 +411,7 @@ namespace rdr
 #endif
 
 		vkDestroyInstance(vkInstance, nullptr);
-		RDR_LOG_INFO("Destroyed Vulkan instance");
+		RDR_LOG_TRACE("Destroyed Vulkan instance");
 	}
 
 	GPU::GPU(VkInstance vkInstance, VkPhysicalDevice device)
@@ -473,7 +473,7 @@ namespace rdr
 			vkGetDeviceQueue(vkDevice, vkGraphicsQueueIndex, 0, &vkGraphicsQueue);
 		}
 
-		RDR_LOG_INFO("Vulkan: Created logical device");
+		RDR_LOG_TRACE("Vulkan: Created logical device");
 
 		// VMA initialization
 		{
@@ -689,13 +689,10 @@ namespace rdr
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCapabilities);
 
 		VkExtent2D extent = surfaceCapabilities.currentExtent;
-		if (extent.width == UINT32_MAX)
-		{
-			extent = {
-				glm::clamp(mConfig.size.x, surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.width),
-				glm::clamp(mConfig.size.y, surfaceCapabilities.maxImageExtent.height, surfaceCapabilities.maxImageExtent.height)
-			};
-		}
+		extent = {
+			glm::clamp(extent.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width),
+			glm::clamp(extent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height)
+		};
 
 		VkSwapchainCreateInfoKHR swapchainCreateInfo = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 		swapchainCreateInfo.imageFormat = useFormat.format;
@@ -835,6 +832,9 @@ namespace rdr
 
 	void Window::ResetSwapchain()
 	{
+		if (mConfig.minimized)
+			return;
+
 		VkSwapchainKHR oldSwapchain = mConfig.renderInfo->vkSwapchain;
 		size_t oldImageCount = mConfig.renderInfo->swapchainImages.size();
 
@@ -854,6 +854,9 @@ namespace rdr
 
 	void Window::BeginFrame()
 	{
+		if (mConfig.minimized)
+			return;
+
 		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
 		uint32_t& index = mConfig.renderInfo->imageIndex;
 
@@ -924,6 +927,9 @@ namespace rdr
 
 	void Window::EndFrame()
 	{
+		if (mConfig.minimized)
+			return;
+
 		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
 		uint32_t& index = mConfig.renderInfo->imageIndex;
 

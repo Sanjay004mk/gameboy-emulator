@@ -149,7 +149,7 @@ namespace rdr
 
 	Window::~Window()
 	{
-		RDR_LOG_INFO("Destroying Window: [{}]", mConfig.title);
+		RDR_LOG_TRACE("Destroying Window: [{}]", mConfig.title);
 		CleanupCommandUnit();
 		CleanupSwapchain();
 		CleanupSurface();
@@ -213,7 +213,7 @@ namespace rdr
 
 		utils::register_all_events(mGlfwWindow);
 
-		RDR_LOG_INFO("Created Window: [{}, ({}, {})]", mConfig.title, mConfig.size.x, mConfig.size.y);
+		RDR_LOG_TRACE("Created Window: [{}, ({}, {})]", mConfig.title, mConfig.size.x, mConfig.size.y);
 
 		if (!mConfig.gpuDevice)
 			mConfig.gpuDevice = Renderer::GetPrimaryGPU();

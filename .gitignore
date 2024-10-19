@@ -14,6 +14,7 @@ emulator/emulator.vcxproj
 emulator/emulator.vcxproj.filters
 emulator/emulator.vcxproj.user
 emulator/*.log
+emulator/gb-test-roms-master
 
 ext/glfw/glfw.vcxproj
 ext/glfw/glfw.vcxproj.filters
