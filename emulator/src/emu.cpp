@@ -4,6 +4,7 @@
 #include "cpu.h"
 
 #include <renderer/rdr.h>
+#include <renderer/time.h>
 
 namespace emu
 {
@@ -43,13 +44,35 @@ namespace emu
 
 			std::unique_ptr<CPU> cpu = std::make_unique<CPU>();
 
+			rdr::TextureBlitInformation blitInfo;
+			blitInfo.srcMax = { 256, 256 };
+			glm::ivec2 size(glm::min(window->GetConfig().size.x, window->GetConfig().size.y));
+
+			if (window->GetConfig().size.x > window->GetConfig().size.y)
+				blitInfo.dstMin.x = (window->GetConfig().size.x - size.x) / 2;
+			else
+				blitInfo.dstMin.y = (window->GetConfig().size.y - size.y) / 2;
+
+			blitInfo.dstMax = blitInfo.dstMin + size;
+			blitInfo.filter = rdr::SamplerFilter::Nearest;
+
 			while (!window->ShouldClose())
 			{
+				float start, end;
+				start = end = rdr::Time::GetTime();
+
+				rdr::Renderer::BeginFrame(window);
+
 				cpu->Update();
 
-//				rdr::Renderer::BeginFrame(window);
+				rdr::Renderer::BlitToWindow(cpu->GetDisplayTexture(), blitInfo);
 
-	//			rdr::Renderer::EndFrame();
+				rdr::Renderer::EndFrame();
+
+				// TODO Wait for
+				end = rdr::Time::GetTime();
+				while ((end - start) < (1.f / 60.f))
+					end = rdr::Time::GetTime();
 
 				rdr::Renderer::PollEvents();
 			}

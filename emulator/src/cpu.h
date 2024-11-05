@@ -1,5 +1,7 @@
 #pragma once
 
+#include <renderer/rdr.h>
+
 namespace emu
 {
 	union Register
@@ -70,21 +72,11 @@ namespace emu
 
 		static inline uint8_t temp = 0x90;
 
-		template <typename Integer>
-		uint8_t& operator[](Integer i)
-		{
-			if (i == 0xff44)
-				return temp;
-
-			return memory[i];
-		}
-
-
 		// write
 		template <typename Integer>
-		uint8_t& operator()(Integer i, uint8_t value) 
+		uint8_t operator()(Integer i, uint8_t value) 
 		{
-			return (*this)[i] = value;
+			return memory[i] = value;
 		}
 
 		// read
@@ -99,25 +91,19 @@ namespace emu
 
 		// write
 		template <typename T, typename Integer>
-		T& SetAs(Integer idx, T value)
+		T SetAs(Integer idx, T value)
 		{
 			for (size_t i = 0; i < sizeof(T); i++)
 				(*this)(idx + i, ((uint8_t*)(&value))[i]);
 
-			return *(reinterpret_cast<T*>(&(*this)[idx]));
-		}
-
-		template <typename T, typename Integer>
-		T& As(Integer i)
-		{
-			return *(reinterpret_cast<T*>(&(*this)[i]));
+			return *(reinterpret_cast<T*>(&(memory[idx])));
 		}
 
 		// read
 		template <typename T, typename Integer>
 		const T& As(Integer i) const
 		{
-			return *(reinterpret_cast<T*>(&(*this)[i]));
+			return *(reinterpret_cast<const T*>(&(*this)[i]));
 		}
 	};
 
@@ -129,11 +115,16 @@ namespace emu
 		CPU();
 		~CPU();
 
-		bool Update();
+		void Update();
+
+		void LoadRom(const char* file);
+		rdr::Texture* GetDisplayTexture() { return displayTexture; }
 
 	private:
 		uint32_t step();
 		uint32_t prefix();
+
+		void setTextureData();
 
 		void handleInterrupts();
 		void updateTimer(uint32_t cycles);
@@ -202,22 +193,32 @@ namespace emu
 		{ 
 			if constexpr (sizeof(Word) == 1)
 			{
+				static_assert(!mem);
 				Word prev = reg++;
 				flags.setz((reg == 0));
 				flags.setn(0);
 				flags.seth(((prev & 0x10) ^ (reg & 0x10)));
 				
-				if constexpr (mem)
-					return 12;
-				else
-					return 4;
+				return 4;
 			}
 			else
 			{
 				static_assert(sizeof(Word) == 2);
-				reg++;
 				
-				return 8;
+				if constexpr (mem)
+				{
+					auto prev = memory[reg];
+					memory(reg, memory[reg] + 1);
+					flags.setz((memory[reg] == 0));
+					flags.setn(0);
+					flags.seth(((prev & 0x10) ^ (memory[reg] & 0x10)));
+					return 12;
+				}
+				else
+				{
+					reg++;
+					return 8;
+				}
 			}			
 		}
 
@@ -226,41 +227,59 @@ namespace emu
 		{
 			if constexpr (sizeof(Word) == 1)
 			{
+				static_assert(!mem);
 				Word prev = reg--;
 				flags.setz((reg == 0));
 				flags.setn(1);
 
 				flags.seth(((prev & 0x0f) < 1));
 				
-				if constexpr (mem)
-					return 12;
-				else
-					return 4;
+				return 4;
 			}
 			else
 			{
 				static_assert(sizeof(Word) == 2);
-				reg--;
+				if constexpr (mem)
+				{
+					Word prev = memory[reg];
+					memory(reg, memory[reg] - 1);
+					flags.setz((memory[reg] == 0));
+					flags.setn(1);
 
-				return 8;
+					flags.seth(((prev & 0x0f) < 1));
+					return 12;
+				}
+				else
+				{
+					reg--;
+					return 8;
+				}
+
 			}
 		}
 
 		template <typename Word, bool acc = false, bool mem = false>
 		uint32_t rlc(Word& reg)
 		{
-			static_assert(sizeof(Word) == 1);
-			flags.setc(reg & 0x80);
-			reg = reg << 1;
-			reg |= flags.c() ? 0x01 : 0x00;
+			if constexpr (mem)
+			{
+				flags.setc(memory[reg] & 0x80);
+				memory(reg, (memory[reg] << 1) | (flags.c() ? 0x01 : 0x00));
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				flags.setc(reg & 0x80);
+				reg = reg << 1;
+				reg |= flags.c() ? 0x01 : 0x00;
+				flags.setz(reg == 0);
+			}
 
 			flags.setn(false);
 			flags.seth(false);
 
 			if constexpr (acc)
 				flags.setz(false);
-			else
-				flags.setz(reg == 0);
 
 			if constexpr (acc)
 				return 4;
@@ -273,19 +292,27 @@ namespace emu
 		template <typename Word, bool acc = false, bool mem = false>
 		uint32_t rl(Word& reg)
 		{
-			static_assert(sizeof(Word) == 1);
-			uint8_t c = flags.c();
-			flags.setc(reg & 0x80);
-			reg = reg << 1;
-			reg |= c;
+			if constexpr (mem)
+			{
+				uint8_t c = flags.c();
+				flags.setc(memory[reg] & 0x80);
+				memory(reg, (memory[reg] << 1) | c);
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				uint8_t c = flags.c();
+				flags.setc(reg & 0x80);
+				reg = reg << 1;
+				reg |= c;
+				flags.setz(reg == 0);
+			}
 
 			flags.setn(false);
 			flags.seth(false);
 
 			if constexpr (acc)
 				flags.setz(false);
-			else
-				flags.setz(reg == 0);
 
 			if constexpr (acc)
 				return 4;
@@ -298,18 +325,25 @@ namespace emu
 		template <typename Word, bool acc = false, bool mem = false>
 		uint32_t rrc(Word& reg)
 		{
-			static_assert(sizeof(Word) == 1);
-			flags.setc(reg & 0x01);
-			reg = reg >> 1;
-			reg |= flags.c() ? 0x80 : 0x00;
+			if constexpr (mem)
+			{
+				flags.setc(memory[reg] & 0x01);
+				memory(reg, (memory[reg] >> 1) | (flags.c() ? 0x80 : 0x00));
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				flags.setc(reg & 0x01);
+				reg = reg >> 1;
+				reg |= flags.c() ? 0x80 : 0x00;
+				flags.setz(reg == 0);
+			}
 
 			flags.setn(false);
 			flags.seth(false);
 
 			if constexpr (acc)
 				flags.setz(false);
-			else
-				flags.setz(reg == 0);
 
 			if constexpr (acc)
 				return 4;
@@ -322,19 +356,27 @@ namespace emu
 		template <typename Word, bool acc = false, bool mem = false>
 		uint32_t rr(Word& reg)
 		{
-			static_assert(sizeof(Word) == 1);
-			uint8_t c = flags.c();
-			flags.setc(reg & 0x01);
-			reg = reg >> 1;
-			reg |= (c << 7);
+			if constexpr (mem)
+			{
+				uint8_t c = flags.c();
+				flags.setc(memory[reg] & 0x01);
+				memory(reg, (memory[reg] >> 1) | (c << 7));
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				uint8_t c = flags.c();
+				flags.setc(reg & 0x01);
+				reg = reg >> 1;
+				reg |= (c << 7);
+				flags.setz(reg == 0);
+			}			
 
 			flags.setn(false);
 			flags.seth(false);
 
 			if constexpr (acc)
 				flags.setz(false);
-			else
-				flags.setz(reg == 0);
 
 			if constexpr (acc)
 				return 4;
@@ -347,11 +389,20 @@ namespace emu
 		template <typename Word, bool acc = false, bool mem = false>
 		uint32_t sla(Word& reg)
 		{
-			flags.setc(reg & 0x80);
-			reg = reg << 1;
+			if constexpr (mem)
+			{
+				flags.setc(memory[reg] & 0x80);
+				memory(reg, (memory[reg] << 1));
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				flags.setc(reg & 0x80);
+				reg = reg << 1;
+				flags.setz(reg == 0);
+			}
 			flags.setn(false);
 			flags.seth(false);
-			flags.setz(reg == 0);
 
 			if constexpr (mem)
 				return 16;
@@ -362,11 +413,20 @@ namespace emu
 		template <typename Word, bool acc = false, bool mem = false>
 		uint32_t sra(Word& reg)
 		{
-			flags.setc(reg & 0x01);
-			reg = (reg >> 1) | (reg & 0x80);
+			if constexpr (mem)
+			{
+				flags.setc(memory[reg] & 0x01);
+				memory(reg, (memory[reg] >> 1) | (memory[reg] & 0x80));
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				flags.setc(reg & 0x01);
+				reg = (reg >> 1) | (reg & 0x80);
+				flags.setz(reg == 0);
+			}
 			flags.setn(false);
 			flags.seth(false);
-			flags.setz(reg == 0);
 
 			if constexpr (mem)
 				return 16;
@@ -377,11 +437,20 @@ namespace emu
 		template <typename Word, bool acc = false, bool mem = false>
 		uint32_t srl(Word& reg)
 		{
-			flags.setc(reg & 0x01);
-			reg = (reg >> 1);
+			if constexpr (mem)
+			{
+				flags.setc(memory[reg] & 0x01);
+				memory(reg, (memory[reg] >> 1));
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				flags.setc(reg & 0x01);
+				reg = (reg >> 1);
+				flags.setz(reg == 0);
+			}
 			flags.setn(false);
 			flags.seth(false);
-			flags.setz(reg == 0);
 
 			if constexpr (mem)
 				return 16;
@@ -392,8 +461,17 @@ namespace emu
 		template <typename Word, bool mem = false>
 		uint32_t swap(Word& reg)
 		{
-			reg = ((reg & 0xf0) >> 4) | ((reg & 0x0f) << 4);
-			flags.setz(reg == 0);
+			if constexpr (mem)
+			{
+				memory(reg, ((memory[reg] & 0xf0) >> 4) | ((memory[reg] & 0x0f) << 4));
+				flags.setz(memory[reg] == 0);
+			}
+			else
+			{
+				reg = ((reg & 0xf0) >> 4) | ((reg & 0x0f) << 4);
+				flags.setz(reg == 0);
+			}
+			
 			flags.setn(false);
 			flags.seth(false);
 			flags.setc(false);
@@ -407,9 +485,12 @@ namespace emu
 		template <uint32_t bit, typename Word, bool mem = false>
 		uint32_t testbit(Word& reg)
 		{
+			if constexpr (mem)
+				flags.setz(!(memory[reg] & (0x1 << bit)));
+			else
+				flags.setz(!(reg & (0x1 << bit)));
 			flags.setn(false);
 			flags.seth(true);
-			flags.setz(!(reg & (0x1 << bit)));
 
 			if constexpr (mem)
 				return 12;
@@ -420,7 +501,10 @@ namespace emu
 		template <uint32_t bit, typename Word, bool mem = false>
 		uint32_t setbit(Word& reg)
 		{
-			reg |= (1 << bit);
+			if constexpr (mem)
+				memory(reg, memory[reg] | (1 << bit));
+			else
+				reg |= (1 << bit);
 
 			if constexpr (mem)
 				return 16;
@@ -431,7 +515,10 @@ namespace emu
 		template <uint32_t bit, typename Word, bool mem = false>
 		uint32_t resetbit(Word& reg)
 		{
-			reg &= (~(1 << bit));
+			if constexpr (mem)
+				memory(reg, memory[reg] & (~(1 << bit)));
+			else
+				reg &= (~(1 << bit));
 
 			if constexpr (mem)
 				return 16;
@@ -439,14 +526,21 @@ namespace emu
 				return 8;
 		}
 
-		template <typename Word, bool carry = false, bool mem = false>
-		uint32_t add(Word& target, Word& other)
+		template <typename Word, bool carry = false, bool mem = false, typename WordOrMem = Word>
+		uint32_t add(Word& targetReg, WordOrMem otherReg)
 		{
 			static constexpr uint32_t carry_bit = sizeof(Word) == 1 ? 0x00000100 : 0x00010000;
 			static constexpr uint32_t hflag = sizeof(Word) == 1 ? 0xf : 0x0fff;
 			static constexpr uint32_t hbit = sizeof(Word) == 1 ? 0x10 : 0x1000;
 
-			int32_t res = (int32_t)target + (int32_t)other;
+			int32_t target = 0, other = 0;
+			target = targetReg;
+			if constexpr (mem)
+				other = (int32_t)memory.As<Word>(otherReg);
+			else
+				other = (int32_t)otherReg;
+
+			int32_t res = target + other;
 			
 			flags.setn(false);
 			
@@ -455,20 +549,18 @@ namespace emu
 					res += 1;
 				
 			if constexpr (carry)
-			{
 				flags.seth((((target & hflag) + (other & hflag) + flags.c()) & hbit));
-			}
 			else
 				flags.seth((((target & hflag) + (other & hflag)) & hbit));
 
 			flags.setc(res & carry_bit);
-			target = (Word)res;
+			targetReg = (Word)res;
 
 			if constexpr (sizeof(Word) == 2)
 				return 8;
 			else
 			{
-				flags.setz(target == 0);
+				flags.setz(targetReg == 0);
 
 				if constexpr (mem)
 					return 8;
@@ -477,12 +569,18 @@ namespace emu
 			}
 		}
 
-		template <typename Word, bool carry = false, bool mem = false>
-		uint32_t sub(Word& target, Word& other)
+		template <typename Word, bool carry = false, bool mem = false, typename WordOrMem = Word>
+		uint32_t sub(Word& targetReg, WordOrMem otherReg)
 		{
 			static_assert(sizeof(Word) == 1);
 
-			int32_t res = (int32_t)target - (int32_t)other;
+			int32_t target = targetReg, other = 0;
+			if constexpr (mem)
+				other = (int32_t)memory[otherReg];
+			else
+				other = (int32_t)otherReg;
+
+			int32_t res = target - other;
 			
 			if constexpr (carry)
 				if (flags.c())
@@ -497,8 +595,8 @@ namespace emu
 
 			flags.setc(res < 0);
 			
-			target = (Word)res;
-			flags.setz(target == 0);
+			targetReg = (Word)res;
+			flags.setz(targetReg == 0);
 
 			if constexpr (mem)
 				return 8;
@@ -506,10 +604,14 @@ namespace emu
 				return 4;
 		}
 
-		template <typename Word, bool mem = false>
-		uint32_t opand(Word& target, Word& other)
+		template <typename Word, bool mem = false, typename WordOrMem = Word>
+		uint32_t opand(Word& target, WordOrMem other)
 		{
-			target = target & other;
+			if constexpr (mem)
+				target = target & memory[other];
+			else
+				target = target & other;
+
 			flags.setz(target == 0);
 			flags.seth(true);
 			flags.setn(false);
@@ -521,10 +623,13 @@ namespace emu
 				return 4;
 		}
 
-		template <typename Word, bool mem = false>
-		uint32_t opor(Word& target, Word& other)
+		template <typename Word, bool mem = false, typename WordOrMem = Word>
+		uint32_t opor(Word& target, WordOrMem other)
 		{
-			target = target | other;
+			if constexpr (mem)
+				target = target | memory[other];
+			else
+				target = target | other;
 			flags.setz(target == 0);
 			flags.seth(false);
 			flags.setn(false);
@@ -536,10 +641,14 @@ namespace emu
 				return 4;
 		}
 
-		template <typename Word, bool mem = false>
-		uint32_t opxor(Word& target, Word& other)
+		template <typename Word, bool mem = false, typename WordOrMem = Word>
+		uint32_t opxor(Word& target, WordOrMem other)
 		{
-			target = target ^ other;
+			if constexpr (mem)
+				target = target ^ memory[other];
+			else
+				target = target ^ other;
+
 			flags.setz(target == 0);
 			flags.seth(false);
 			flags.setn(false);
@@ -551,11 +660,15 @@ namespace emu
 				return 4;
 		}
 
-		template <typename Word, bool mem = false>
-		uint32_t cp(Word& target, Word& reg)
+		template <typename Word, bool mem = false, typename WordOrMem = Word>
+		uint32_t cp(Word& targetReg, WordOrMem otherReg)
 		{
 			static_assert(sizeof(Word) == 1);
-			
+			int32_t target = targetReg, reg = 0;
+			if constexpr (mem)
+				reg = memory[otherReg];
+			else
+				reg = otherReg;
 			int32_t res = (int32_t)target - (int32_t)reg;
 
 			flags.setn(true);
@@ -788,5 +901,9 @@ namespace emu
 		uint16_t sp = 0xfffe;
 		uint16_t pc = 0x0000;
 		Flags flags;
+
+		rdr::Texture* displayTexture = nullptr;
+		std::vector<uint32_t> cpuBuffer;
+		rdr::Buffer* stagingBuffer = nullptr;
 	};
 }

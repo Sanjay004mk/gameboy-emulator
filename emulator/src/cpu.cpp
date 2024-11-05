@@ -3,10 +3,47 @@
 
 #include <renderer/time.h>
 #include <iomanip>
+//
+//#define LOAD_BLARGG_ROMS
+
+namespace utils
+{
+#if defined(LOAD_BLARGG_ROMS)
+	static std::string op;
+	static std::vector<std::string> roms;
+	static uint32_t idx = 0;
+
+#endif
+
+	uint8_t gameboyBootROM[256] = {
+	0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB,
+	0x21, 0x26, 0xFF, 0x0E, 0x11, 0x3E, 0x80, 0x32, 0xE2, 0x0C, 0x3E, 0xF3,
+	0xE2, 0x32, 0x3E, 0x77, 0x77, 0x3E, 0xFC, 0xE0, 0x47, 0x11, 0x04, 0x01,
+	0x21, 0x10, 0x80, 0x1A, 0xCD, 0x95, 0x00, 0xCD, 0x96, 0x00, 0x13, 0x7B,
+	0xFE, 0x34, 0x20, 0xF3, 0x11, 0xD8, 0x00, 0x06, 0x08, 0x1A, 0x13, 0x22,
+	0x23, 0x05, 0x20, 0xF9, 0x3E, 0x19, 0xEA, 0x10, 0x99, 0x21, 0x2F, 0x99,
+	0x0E, 0x0C, 0x3D, 0x28, 0x08, 0x32, 0x0D, 0x20, 0xF9, 0x2E, 0x0F, 0x18,
+	0xF3, 0x67, 0x3E, 0x64, 0x57, 0xE0, 0x42, 0x3E, 0x91, 0xE0, 0x40, 0x04,
+	0x1E, 0x02, 0x0E, 0x0C, 0xF0, 0x44, 0xFE, 0x90, 0x20, 0xFA, 0x0D, 0x20,
+	0xF7, 0x1D, 0x20, 0xF2, 0x0E, 0x13, 0x24, 0x7C, 0x1E, 0x83, 0xFE, 0x62,
+	0x28, 0x06, 0x1E, 0xC1, 0xFE, 0x64, 0x20, 0x06, 0x7B, 0xE2, 0x0C, 0x3E,
+	0x87, 0xE2, 0xF0, 0x42, 0x90, 0xE0, 0x42, 0x15, 0x20, 0xD2, 0x05, 0x20,
+	0x4F, 0x16, 0x20, 0x18, 0xCB, 0x4F, 0x06, 0x04, 0xC5, 0xCB, 0x11, 0x17,
+	0xC1, 0xCB, 0x11, 0x17, 0x05, 0x20, 0xF5, 0x22, 0x23, 0x22, 0x23, 0xC9,
+	0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83,
+	0x00, 0x0C, 0x00, 0x0D, 0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E,
+	0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99, 0xBB, 0xBB, 0x67, 0x63,
+	0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+	0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C, 0x21, 0x04, 0x01, 0x11,
+	0xA8, 0x00, 0x1A, 0x13, 0xBE, 0x20, 0xFE, 0x23, 0x7D, 0xFE, 0x34, 0x20,
+	0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0xFE,
+	0x3E, 0x01, 0xE0, 0x50
+	};
+}
 
 namespace emu
 {
-	static std::ofstream logfile;
+	
 
 	CPU::CPU()
 		: flags(AF.lo)
@@ -45,104 +82,145 @@ namespace emu
 			memory(0xFFFF, 0x00);
 		}
 
-		// read boot rom
+#if defined(LOAD_BLARGG_ROMS)
 		{
-			const char* romfilestr = "gb-test-roms-master/cpu_instrs/individual/11-op a,(hl).gb";
-			std::ifstream bootrom(romfilestr, std::ios::binary | std::ios::in);
-			size_t size = std::filesystem::file_size(romfilestr);
+			for (auto& entry : std::filesystem::directory_iterator("gb-test-roms-master/cpu_instrs/individual"))
+				utils::roms.push_back(entry.path().string());
 
-			bootrom.read((char*)memory.memory, size);
-
+			LoadRom(utils::roms[utils::idx++].c_str());
 			pc = 0x100;
 		}
+#endif
 
-		logfile.open("instr.log", std::ios::out);
+		LoadRom("gb-test-roms-master/cpu_instrs/individual/09-op r,r.gb");
+		pc = 0x0;
 
-		logfile << "A:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.hi << " ";
-		logfile << "F:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.lo << " ";
+		rdr::BufferConfiguration bufferConfig;
+		bufferConfig.cpuVisible = true;
+		bufferConfig.enableCopy = true;
+		bufferConfig.persistentMap = true;
+		bufferConfig.size = 256 * 256 * 4;
+		bufferConfig.type = rdr::BufferType::StagingBuffer;
 
-		logfile << "B:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)BC.hi << " ";
-		logfile << "C:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)BC.lo << " ";
+		stagingBuffer = new rdr::Buffer(bufferConfig);
+		cpuBuffer.resize(256 * 256);
 
-		logfile << "D:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)DE.hi << " ";
-		logfile << "E:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)DE.lo << " ";
-
-		logfile << "H:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)HL.hi << " ";
-		logfile << "L:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)HL.lo << " ";
-
-		logfile << "SP:" << std::setfill('0') << std::setw(4) << std::hex << std::uppercase << sp << " ";
-		logfile << "PC:" << std::setfill('0') << std::setw(4) << std::hex << std::uppercase << pc << " ";
-
-		logfile << "PCMEM:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc];
-		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 1];
-		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 2];
-		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 3];
-		logfile << std::endl;
+		rdr::TextureConfiguration textureConfig;
+		textureConfig.format = rdr::TextureFormat(4, rdr::eDataType::Ufloat8);
+		textureConfig.size = { 256, 256 };
+		textureConfig.type.Set<rdr::TextureType::copyEnable>(true);
+		
+		displayTexture = new rdr::Texture(textureConfig);
 	}
 
 	CPU::~CPU()
 	{
-		logfile.close();
+		delete stagingBuffer;
+		delete displayTexture;
 	}
 
-	static float cur = 0.f, last = 0.f;
-	static uint64_t instrcount = 0, cycles = 0;
-
-	bool CPU::Update()
+	void CPU::LoadRom(const char* file)
 	{
-		cur = rdr::Time::GetTime();
-		if (cur - last > 1.f)
+		std::ifstream bootrom(file, std::ios::binary | std::ios::in);
+		size_t size = std::filesystem::file_size(file);
+
+		bootrom.read((char*)memory.memory, std::min(size, (size_t)std::numeric_limits<uint16_t>::max()));
+
+		memcpy_s(memory.memory, sizeof(memory.memory), utils::gameboyBootROM, sizeof(utils::gameboyBootROM));
+	}
+
+	void CPU::Update()
+	{
+		uint32_t stepCycle = 1, totalCycles = 1;
+
+		while (totalCycles < (frequency / 60))
 		{
-			last = cur;
-			RDR_LOG_INFO("{} instr/sec\t {} cycles", instrcount, cycles);
-			cycles = 0;
+			stepCycle = 1;
+
+			if (!flags.halt)
+				stepCycle = step();
+
+#if defined(LOAD_BLARGG_ROMS)
+			if (memory[0xff02] == 0x81)
+			{
+				std::cout << memory.As<char>(0xff01);
+				utils::op += memory.As<char>(0xff01);
+				memory(0xff02, 0);
+			}
+#endif
+
+			if (flags.enableImeCountdown > 0)
+			{
+				if ((--flags.enableImeCountdown) == 0)
+					flags.ime = true;
+			}
+
+			updateTimer(stepCycle);
+			handleInterrupts();
+
+#if defined(LOAD_BLARGG_ROMS)
+			if (utils::op.contains("Passed\n"))
+			{
+				memset(memory.memory, 0, sizeof(memory.memory));
+
+				if (utils::idx >= utils::roms.size())
+					return;
+				LoadRom(utils::roms[utils::idx++].c_str());
+				pc = 0x100;
+
+				utils::op = "";
+			}
+#endif
+
+			totalCycles += stepCycle;
 		}
 
-		uint32_t stepCycle = 1;
-		
-		if (!flags.halt)
-			stepCycle = step();
+		setTextureData();
+	}
 
-		cycles += stepCycle;
-		instrcount++;
+	void CPU::setTextureData()
+	{
+		uint32_t bgTileData = memory[0xff40] & (1 << 4) ? 0x8000 : 0x8800;
+		uint32_t bgTileMap = memory[0xff40] & (1 << 3) ? 0x9c00 : 0x9800;
 
-		if (memory[0xff02] == 0x81)
+		// tmp
+		uint32_t color_palette[] = {
+			0xffffffff,
+			0xff606060,
+			0xff303030,
+			0xff010101
+		};
+
+		for (uint32_t i = 0; i < 256; i++)
 		{
-			std::cout << memory.As<char>(0xff01);
-			memory(0xff02, 0);
+			for (uint32_t j = 0; j < 256; j++)
+			{
+				uint32_t tileNumber = memory[bgTileMap + ((i / 8) * 4) + (j / 8)]; // 32 x 32 byte tilemap -> 8 x 8 pixels per tile
+
+				//  every tile is represented by 16 bytes;
+				//  every 2 consecutive bytes represents a row (8 pixels)
+				//  the palette to use (0 - 3) is given by taking the corresponding bits from the 2 bytes
+				//  eg. for 2nd pixel from the left take bit 6 from both bytes and flip them
+				//  0x8800 represents signed indexing
+
+				uint32_t location = 
+					bgTileData == 0x8000 ? 
+					bgTileData + (tileNumber * 0x10) + ((i % 8) * 2) :
+					bgTileData + ((int8_t)tileNumber * 0x10) + ((i % 8) * 2); // signed indexing
+
+				uint16_t tileData = memory.As<uint16_t>(location); // tile row
+
+				uint32_t index = 0;
+				index = ((tileData << (j % 8)) & (0x8000)) ? 0x1 : 0x0;
+				index |= ((tileData << (j & 8)) & (0x0080)) ? 0x2 : 0x0;
+
+				RDR_ASSERT_MSG_BREAK(index < 4, "Index wrong");
+				cpuBuffer[i * 256 + j] = color_palette[index];
+			}
 		}
 
-		if (flags.enableImeCountdown > 0)
-		{
-			if ((--flags.enableImeCountdown) == 0)
-				flags.ime = true;
-		}
-
-		/*logfile << "A:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.hi << " ";
-		logfile << "F:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)AF.lo << " ";
-
-		logfile << "B:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)BC.hi << " ";
-		logfile << "C:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)BC.lo << " ";
-
-		logfile << "D:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)DE.hi << " ";
-		logfile << "E:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)DE.lo << " ";
-
-		logfile << "H:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)HL.hi << " ";
-		logfile << "L:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)HL.lo << " ";
-
-		logfile << "SP:" << std::setfill('0') << std::setw(4) << std::hex << std::uppercase << sp << " ";
-		logfile << "PC:" << std::setfill('0') << std::setw(4) << std::hex << std::uppercase << pc << " ";
-
-		logfile << "PCMEM:" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc];
-		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 1];
-		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 2];
-		logfile << "," << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << (uint32_t)memory[pc + 3];
-		logfile << std::endl;*/
-
-		updateTimer(stepCycle);
-		handleInterrupts();
-
-		return false;
+		memcpy_s(stagingBuffer->GetData(), stagingBuffer->GetConfig().size, cpuBuffer.data(), cpuBuffer.size() * 4);
+		displayTexture->SetData(stagingBuffer, false);
 	}
 
 	void CPU::handleInterrupts()
@@ -419,10 +497,10 @@ break;
 				cycles = inc(sp);
 				});
 			HANDLE_OP(0x34, {
-				cycles = (inc<uint8_t, true>(memory[HL.b16]));
+				cycles = (inc<uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x35, {
-				cycles = (dec<uint8_t, true>(memory[HL.b16]));
+				cycles = (dec<uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x36, {
 				cycles = stc(HL.b16);
@@ -671,7 +749,7 @@ break;
 				cycles = add(AF.hi, HL.lo);
 				});
 			HANDLE_OP(0x86, {
-				cycles = (add<uint8_t, false, true>(AF.hi, memory[HL.b16]));
+				cycles = (add<uint8_t, false, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0x87, {
 				cycles = add(AF.hi, AF.hi);
@@ -695,7 +773,7 @@ break;
 				cycles = (add<uint8_t, true>(AF.hi, HL.lo));
 				});
 			HANDLE_OP(0x8e, {
-				cycles = (add<uint8_t, true, true>(AF.hi, memory[HL.b16]));
+				cycles = (add<uint8_t, true, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0x8f, {
 				cycles = (add<uint8_t, true>(AF.hi, AF.hi));
@@ -720,7 +798,7 @@ break;
 				cycles = sub(AF.hi, HL.lo);
 				});
 			HANDLE_OP(0x96, {
-				cycles = (sub<uint8_t, false, true>(AF.hi, memory[HL.b16]));
+				cycles = (sub<uint8_t, false, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0x97, {
 				cycles = sub(AF.hi, AF.hi);
@@ -744,7 +822,7 @@ break;
 				cycles = (sub<uint8_t, true>(AF.hi, HL.lo));
 				});
 			HANDLE_OP(0x9e, {
-				cycles = (sub<uint8_t, true, true>(AF.hi, memory[HL.b16]));
+				cycles = (sub<uint8_t, true, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0x9f, {
 				cycles = (sub<uint8_t, true>(AF.hi, AF.hi));
@@ -769,7 +847,7 @@ break;
 				cycles = opand(AF.hi, HL.lo);
 				});
 			HANDLE_OP(0xa6, {
-				cycles = (opand<uint8_t, true>(AF.hi, memory[HL.b16]));
+				cycles = (opand<uint8_t, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0xa7, {
 				cycles = opand(AF.hi, AF.hi);
@@ -793,7 +871,7 @@ break;
 				cycles = opxor(AF.hi, HL.lo);
 				});
 			HANDLE_OP(0xae, {
-				cycles = (opxor<uint8_t, true>(AF.hi, memory[HL.b16]));
+				cycles = (opxor<uint8_t, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0xaf, {
 				cycles = opxor(AF.hi, AF.hi);
@@ -818,7 +896,7 @@ break;
 				cycles = opor(AF.hi, HL.lo);
 				});
 			HANDLE_OP(0xb6, {
-				cycles = (opor<uint8_t, true>(AF.hi, memory[HL.b16]));
+				cycles = (opor<uint8_t, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0xb7, {
 				cycles = opor(AF.hi, AF.hi);
@@ -842,7 +920,7 @@ break;
 				cycles = cp(AF.hi, HL.lo);
 				});
 			HANDLE_OP(0xbe, {
-				cycles = (cp<uint8_t, true>(AF.hi, memory[HL.b16]));
+				cycles = (cp<uint8_t, true>(AF.hi, HL.b16));
 				});
 			HANDLE_OP(0xbf, {
 				cycles = cp(AF.hi, AF.hi);
@@ -867,7 +945,7 @@ break;
 				cycles = push(BC.b16);
 				});
 			HANDLE_OP(0xc6, {
-				cycles = (add<uint8_t, false, true>(AF.hi, memory[pc++]));
+				cycles = (add<uint8_t, false, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xc7, {
 				cycles = rst<0x00>();
@@ -888,7 +966,7 @@ break;
 				cycles = call();
 				});
 			HANDLE_OP(0xce, {
-				cycles = (add<uint8_t, true, true>(AF.hi, memory[pc++]));
+				cycles = (add<uint8_t, true, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xcf, {
 				cycles = rst<0x08>();
@@ -913,7 +991,7 @@ break;
 				cycles = push(DE.b16);
 				});
 			HANDLE_OP(0xd6, {
-				cycles = (sub<uint8_t, false, true>(AF.hi, memory[pc++]));
+				cycles = (sub<uint8_t, false, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xd7, {
 				cycles = rst<0x10>();
@@ -937,7 +1015,7 @@ break;
 				RDR_LOG_ERROR("Invalid opcode 0xDD");
 				});
 			HANDLE_OP(0xde, {
-				cycles = (sub<uint8_t, true, true>(AF.hi, memory[pc++]));
+				cycles = (sub<uint8_t, true, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xdf, {
 				cycles = rst<0x18>();
@@ -964,7 +1042,7 @@ break;
 				cycles = push(HL.b16);
 				});
 			HANDLE_OP(0xe6, {
-				cycles = (opand<uint8_t, true>(AF.hi, memory[pc++]));
+				cycles = (opand<uint8_t, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xe7, {
 				cycles = rst<0x20>();
@@ -976,7 +1054,8 @@ break;
 				cycles = jpreg(HL.b16);
 				});
 			HANDLE_OP(0xea, {
-				cycles = (str(memory.As<uint16_t>(pc), AF.hi)) + 8;
+				uint16_t addr = memory.As<uint16_t>(pc);
+				cycles = (str(addr, AF.hi)) + 8;
 				pc += 2;
 				});
 			HANDLE_OP(0xeb, {
@@ -989,7 +1068,7 @@ break;
 				RDR_LOG_ERROR("Invalid opcode 0xED");
 				});
 			HANDLE_OP(0xee, {
-				cycles = (opxor<uint8_t, true>(AF.hi, memory[pc++]));
+				cycles = (opxor<uint8_t, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xef, {
 				cycles = rst<0x28>();
@@ -1017,7 +1096,7 @@ break;
 				cycles = push(AF.b16);
 				});
 			HANDLE_OP(0xf6, {
-				cycles = (opor<uint8_t, true>(AF.hi, memory[pc++]));
+				cycles = (opor<uint8_t, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xf7, {
 				cycles = rst<0x30>();
@@ -1029,7 +1108,8 @@ break;
 				cycles = mv(sp, HL.b16);
 				});
 			HANDLE_OP(0xfa, {
-				cycles = (ldr(AF.hi, memory.As<uint16_t>(pc))) + 8;
+				uint16_t addr = memory.As<uint16_t>(pc);
+				cycles = (ldr(AF.hi, addr)) + 8;
 				pc += 2;
 				});
 			HANDLE_OP(0xfb, {
@@ -1042,7 +1122,7 @@ break;
 				RDR_LOG_ERROR("Invalid opcode 0xFD");
 				});
 			HANDLE_OP(0xfe, {
-				cycles = (cp<uint8_t, true>(AF.hi, memory[pc++]));
+				cycles = (cp<uint8_t, true>(AF.hi, pc++));
 				});
 			HANDLE_OP(0xff, {
 				cycles = rst<0x38>();
@@ -1078,7 +1158,7 @@ break;
 				cycles = rlc(HL.lo);
 				});
 			HANDLE_OP(0x06, {
-				cycles = (rlc<uint8_t, false, true>(memory[HL.b16]));
+				cycles = (rlc<uint16_t, false, true>(HL.b16));
 				});
 			HANDLE_OP(0x07, {
 				cycles = rlc(AF.hi);
@@ -1102,7 +1182,7 @@ break;
 				cycles = rrc(HL.lo);
 				});
 			HANDLE_OP(0x0e, {
-				cycles = (rrc<uint8_t, false, true>(memory[HL.b16]));
+				cycles = (rrc<uint16_t, false, true>(HL.b16));
 				});
 			HANDLE_OP(0x0f, {
 				cycles = rrc(AF.hi);
@@ -1127,7 +1207,7 @@ break;
 				cycles = rl(HL.lo);
 				});
 			HANDLE_OP(0x16, {
-				cycles = (rl<uint8_t, false, true>(memory[HL.b16]));
+				cycles = (rl<uint16_t, false, true>(HL.b16));
 				});
 			HANDLE_OP(0x17, {
 				cycles = rl(AF.hi);
@@ -1151,7 +1231,7 @@ break;
 				cycles = rr(HL.lo);
 				});
 			HANDLE_OP(0x1e, {
-				cycles = (rr<uint8_t, false, true>(memory[HL.b16]));
+				cycles = (rr<uint16_t, false, true>(HL.b16));
 				});
 			HANDLE_OP(0x1f, {
 				cycles = rr(AF.hi);
@@ -1176,7 +1256,7 @@ break;
 				cycles = sla(HL.lo);
 				});
 			HANDLE_OP(0x26, {
-				cycles = (sla<uint8_t, false, true>(memory[HL.b16]));
+				cycles = (sla<uint16_t, false, true>(HL.b16));
 				});
 			HANDLE_OP(0x27, {
 				cycles = sla(AF.hi);
@@ -1200,7 +1280,7 @@ break;
 				cycles = sra(HL.lo);
 				});
 			HANDLE_OP(0x2e, {
-				cycles = (sra<uint8_t, false, true>(memory[HL.b16]));
+				cycles = (sra<uint16_t, false, true>(HL.b16));
 				});
 			HANDLE_OP(0x2f, {
 				cycles = sra(AF.hi);
@@ -1225,7 +1305,7 @@ break;
 				cycles = swap(HL.lo);
 				});
 			HANDLE_OP(0x36, {
-				cycles = (swap<uint8_t, true>(memory[HL.b16]));
+				cycles = (swap<uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x37, {
 				cycles = swap(AF.hi);
@@ -1249,7 +1329,7 @@ break;
 				cycles = srl(HL.lo);
 				});
 			HANDLE_OP(0x3e, {
-				cycles = (srl<uint8_t, false, true>(memory[HL.b16]));
+				cycles = (srl<uint16_t, false, true>(HL.b16));
 				});
 			HANDLE_OP(0x3f, {
 				cycles = srl(AF.hi);
@@ -1274,7 +1354,7 @@ break;
 				cycles = testbit<0>(HL.lo);
 				});
 			HANDLE_OP(0x46, {
-				cycles = (testbit<0, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<0, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x47, {
 				cycles = testbit<0>(AF.hi);
@@ -1298,7 +1378,7 @@ break;
 				cycles = testbit<1>(HL.lo);
 				});
 			HANDLE_OP(0x4e, {
-				cycles = (testbit<1, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<1, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x4f, {
 				cycles = testbit<1>(AF.hi);
@@ -1323,7 +1403,7 @@ break;
 				cycles = testbit<2>(HL.lo);
 				});
 			HANDLE_OP(0x56, {
-				cycles = (testbit<2, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<2, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x57, {
 				cycles = testbit<2>(AF.hi);
@@ -1347,7 +1427,7 @@ break;
 				cycles = testbit<3>(HL.lo);
 				});
 			HANDLE_OP(0x5e, {
-				cycles = (testbit<3, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<3, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x5f, {
 				cycles = testbit<3>(AF.hi);
@@ -1372,7 +1452,7 @@ break;
 				cycles = testbit<4>(HL.lo);
 				});
 			HANDLE_OP(0x66, {
-				cycles = (testbit<4, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<4, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x67, {
 				cycles = testbit<4>(AF.hi);
@@ -1396,7 +1476,7 @@ break;
 				cycles = testbit<5>(HL.lo);
 				});
 			HANDLE_OP(0x6e, {
-				cycles = (testbit<5, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<5, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x6f, {
 				cycles = testbit<5>(AF.hi);
@@ -1421,7 +1501,7 @@ break;
 				cycles = testbit<6>(HL.lo);
 				});
 			HANDLE_OP(0x76, {
-				cycles = (testbit<6, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<6, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x77, {
 				cycles = testbit<6>(AF.hi);
@@ -1445,7 +1525,7 @@ break;
 				cycles = testbit<7>(HL.lo);
 				});
 			HANDLE_OP(0x7e, {
-				cycles = (testbit<7, uint8_t, true>(memory[HL.b16]));
+				cycles = (testbit<7, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x7f, {
 				cycles = testbit<7>(AF.hi);
@@ -1470,7 +1550,7 @@ break;
 				cycles = resetbit<0>(HL.lo);
 				});
 			HANDLE_OP(0x86, {
-				cycles = (resetbit<0, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<0, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x87, {
 				cycles = resetbit<0>(AF.hi);
@@ -1494,7 +1574,7 @@ break;
 				cycles = resetbit<1>(HL.lo);
 				});
 			HANDLE_OP(0x8e, {
-				cycles = (resetbit<1, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<1, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x8f, {
 				cycles = resetbit<1>(AF.hi);
@@ -1519,7 +1599,7 @@ break;
 				cycles = resetbit<2>(HL.lo);
 				});
 			HANDLE_OP(0x96, {
-				cycles = (resetbit<2, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<2, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x97, {
 				cycles = resetbit<2>(AF.hi);
@@ -1543,7 +1623,7 @@ break;
 				cycles = resetbit<3>(HL.lo);
 				});
 			HANDLE_OP(0x9e, {
-				cycles = (resetbit<3, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<3, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0x9f, {
 				cycles = resetbit<3>(AF.hi);
@@ -1568,7 +1648,7 @@ break;
 				cycles = resetbit<4>(HL.lo);
 				});
 			HANDLE_OP(0xa6, {
-				cycles = (resetbit<4, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<4, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xa7, {
 				cycles = resetbit<4>(AF.hi);
@@ -1592,7 +1672,7 @@ break;
 				cycles = resetbit<5>(HL.lo);
 				});
 			HANDLE_OP(0xae, {
-				cycles = (resetbit<5, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<5, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xaf, {
 				cycles = resetbit<5>(AF.hi);
@@ -1617,7 +1697,7 @@ break;
 				cycles = resetbit<6>(HL.lo);
 				});
 			HANDLE_OP(0xb6, {
-				cycles = (resetbit<6, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<6, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xb7, {
 				cycles = resetbit<6>(AF.hi);
@@ -1641,7 +1721,7 @@ break;
 				cycles = resetbit<7>(HL.lo);
 				});
 			HANDLE_OP(0xbe, {
-				cycles = (resetbit<7, uint8_t, true>(memory[HL.b16]));
+				cycles = (resetbit<7, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xbf, {
 				cycles = resetbit<7>(AF.hi);
@@ -1666,7 +1746,7 @@ break;
 				cycles = setbit<0>(HL.lo);
 				});
 			HANDLE_OP(0xc6, {
-				cycles = (setbit<0, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<0, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xc7, {
 				cycles = setbit<0>(AF.hi);
@@ -1690,7 +1770,7 @@ break;
 				cycles = setbit<1>(HL.lo);
 				});
 			HANDLE_OP(0xce, {
-				cycles = (setbit<1, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<1, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xcf, {
 				cycles = setbit<1>(AF.hi);
@@ -1715,7 +1795,7 @@ break;
 				cycles = setbit<2>(HL.lo);
 				});
 			HANDLE_OP(0xd6, {
-				cycles = (setbit<2, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<2, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xd7, {
 				cycles = setbit<2>(AF.hi);
@@ -1739,7 +1819,7 @@ break;
 				cycles = setbit<3>(HL.lo);
 				});
 			HANDLE_OP(0xde, {
-				cycles = (setbit<3, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<3, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xdf, {
 				cycles = setbit<3>(AF.hi);
@@ -1764,7 +1844,7 @@ break;
 				cycles = setbit<4>(HL.lo);
 				});
 			HANDLE_OP(0xe6, {
-				cycles = (setbit<4, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<4, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xe7, {
 				cycles = setbit<4>(AF.hi);
@@ -1788,7 +1868,7 @@ break;
 				cycles = setbit<5>(HL.lo);
 				});
 			HANDLE_OP(0xee, {
-				cycles = (setbit<5, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<5, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xef, {
 				cycles = setbit<5>(AF.hi);
@@ -1813,7 +1893,7 @@ break;
 				cycles = setbit<6>(HL.lo);
 				});
 			HANDLE_OP(0xf6, {
-				cycles = (setbit<6, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<6, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xf7, {
 				cycles = setbit<6>(AF.hi);
@@ -1837,7 +1917,7 @@ break;
 				cycles = setbit<7>(HL.lo);
 				});
 			HANDLE_OP(0xfe, {
-				cycles = (setbit<7, uint8_t, true>(memory[HL.b16]));
+				cycles = (setbit<7, uint16_t, true>(HL.b16));
 				});
 			HANDLE_OP(0xff, {
 				cycles = setbit<7>(AF.hi);
