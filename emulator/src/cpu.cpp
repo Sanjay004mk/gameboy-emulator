@@ -59,9 +59,6 @@ namespace emu
 		}
 #endif
 
-		LoadRom("gb-test-roms-master/cpu_instrs/individual/09-op r,r.gb");
-		pc = 0x0;
-
 		rdr::BufferConfiguration bufferConfig;
 		bufferConfig.cpuVisible = true;
 		bufferConfig.enableCopy = true;
@@ -78,6 +75,10 @@ namespace emu
 		textureConfig.type.Set<rdr::TextureType::copyEnable>(true);
 		
 		displayTexture = new rdr::Texture(textureConfig);
+
+		memset(cpuBuffer.data(), 0xff, cpuBuffer.size() * 4);
+		memcpy_s(stagingBuffer->GetData(), stagingBuffer->GetConfig().size, cpuBuffer.data(), cpuBuffer.size() * 4);
+		displayTexture->SetData(stagingBuffer);
 	}
 
 	CPU::~CPU()
@@ -94,6 +95,23 @@ namespace emu
 		bootrom.read((char*)memory.memory, std::min(size, (size_t)std::numeric_limits<uint16_t>::max()));
 
 		memcpy_s(memory.memory, sizeof(memory.memory), utils::gameboyBootROM, sizeof(utils::gameboyBootROM));
+
+	}
+
+	void CPU::Pause()
+	{
+		running = false;
+	}
+
+	void CPU::Reset()
+	{
+		pc = 0x100;
+
+		AF.b16 = 0x01b0;
+		BC.b16 = 0x0013;
+		DE.b16 = 0x00d8;
+		HL.b16 = 0x014d;
+		sp = 0xfffe;
 
 		{
 			memory.memory[0xFF05] = 0x00;
@@ -128,10 +146,31 @@ namespace emu
 			memory.memory[0xFF4B] = 0x00;
 			memory.memory[0xFFFF] = 0x00;
 		}
+
+		running = true;
+	}
+
+	void CPU::Resume()
+	{
+		running = true;
+	}
+
+	void CPU::Toggle()
+	{
+		running = !running;
+	}
+
+	void CPU::LoadAndStart(const char* file)
+	{
+		LoadRom(file);
+		Reset();
 	}
 
 	void CPU::Update()
 	{
+		if (!running)
+			return;
+
 		uint32_t stepCycle = 1, totalCycles = 1;
 
 		while (totalCycles < (frequency / 60))
@@ -226,7 +265,7 @@ namespace emu
 
 	void CPU::handleInterrupts()
 	{
-		if (memory[0xffff] & memory[0xff0f] && flags.halt)
+		if ((memory[0xffff] & memory[0xff0f]) && flags.halt)
 			flags.halt = false;
 
 		if (flags.ime)

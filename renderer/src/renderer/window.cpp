@@ -3,7 +3,13 @@
 #include "renderer/renderer.h"
 #include "renderer/window.h"
 
+#if defined(_WIN32)
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <commdlg.h>
+#endif
+
 #include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
 
 namespace utils
 {
@@ -355,5 +361,32 @@ namespace rdr
 	float Window::GetMouseY() const
 	{
 		return GetMousePosition().y;
+	}
+
+	std::string Window::OpenFile(const char* filter)
+	{
+#if defined(_WIN32)
+		OPENFILENAMEA ofn{};
+		CHAR file[256] = {};
+		CHAR initDir[256] = {};
+		ofn.lStructSize = sizeof(OPENFILENAME);
+		ofn.hwndOwner = glfwGetWin32Window(mGlfwWindow);
+		ofn.lpstrFile = file;
+		ofn.nMaxFile = sizeof(file);
+		ofn.lpstrFilter = filter;
+		ofn.nFilterIndex = 1;
+
+		if (GetCurrentDirectoryA(256, initDir))
+			ofn.lpstrInitialDir = initDir;
+
+		ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+
+		if (GetOpenFileNameA(&ofn))
+			return ofn.lpstrFile;
+
+		return std::string();
+#else
+#error "openfile not handled" 
+#endif
 	}
 }

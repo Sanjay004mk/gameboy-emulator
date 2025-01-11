@@ -94,6 +94,8 @@ namespace rdr
 
 		void ResetSwapchain();
 
+		std::string OpenFile(const char* filter);
+
 	private:
 		void Init();
 

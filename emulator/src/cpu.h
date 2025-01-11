@@ -68,7 +68,7 @@ namespace emu
 
 	struct Memory
 	{
-		uint8_t memory[std::numeric_limits<uint16_t>::max()] = {};
+		uint8_t memory[std::numeric_limits<uint16_t>::max() + 1] = {};
 
 		static inline uint8_t temp = 0x90;
 
@@ -119,6 +119,13 @@ namespace emu
 
 		void LoadRom(const char* file);
 		rdr::Texture* GetDisplayTexture() { return displayTexture; }
+
+		void Pause();
+		void Resume();
+		void Toggle();
+		bool isRunning() { return running; }
+		void Reset();
+		void LoadAndStart(const char* file);
 
 	private:
 		uint32_t step();
@@ -905,5 +912,7 @@ namespace emu
 		rdr::Texture* displayTexture = nullptr;
 		std::vector<uint32_t> cpuBuffer;
 		rdr::Buffer* stagingBuffer = nullptr;
+
+		bool running = false;
 	};
 }

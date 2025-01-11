@@ -19,11 +19,13 @@ namespace emu
 			config.title = "Gameboy Emulator";
 
 			auto window = rdr::Renderer::InstantiateWindow(config);
+			std::unique_ptr<CPU> cpu = std::make_unique<CPU>();
 
 			window->RegisterCallback<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
 				{
 					if (window->IsKeyDown(rdr::Key::LeftControl))
 					{
+						std::string file;
 						switch (e.GetKeyCode())
 						{
 						case rdr::Key::D1:
@@ -38,11 +40,25 @@ namespace emu
 							RDR_LOG_TRACE("Setting Present Mode to Vsync");
 							window->SetPresentMode(rdr::PresentMode::VSync);
 							break;
+
+						case rdr::Key::O:
+							file = window->OpenFile("Gameboy Rom (.gb)\0*.gb\0");
+							if (file != std::string())
+							{
+								RDR_LOG_INFO("Opening rom {}", file);
+								cpu->LoadAndStart(file.c_str());
+							}
+							break;
+
+						case rdr::Key::P:
+							cpu->Toggle();
+							RDR_LOG_INFO("Emulation is {}", cpu->isRunning() ? "Running" : "Paused");
+							break;
+
 						}
 					}
 				});
 
-			std::unique_ptr<CPU> cpu = std::make_unique<CPU>();
 
 			rdr::TextureBlitInformation blitInfo;
 			blitInfo.srcMax = { 256, 256 };
