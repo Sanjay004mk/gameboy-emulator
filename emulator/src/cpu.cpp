@@ -68,13 +68,10 @@ namespace emu
 
 	void CPU::LoadRom(const char* file)
 	{
-		std::ifstream bootrom(file, std::ios::binary | std::ios::in);
-		size_t size = std::filesystem::file_size(file);
+		memory.rom = std::make_shared<ROM>(file);
 
-		bootrom.read((char*)memory.memory, std::min(size, (size_t)std::numeric_limits<uint16_t>::max()));
-
+		memcpy_s(memory.memory, sizeof(memory.memory), memory.rom->data.data(), std::min(0xffffull, memory.rom->data.size()));
 		memcpy_s(memory.memory, sizeof(memory.memory), utils::gameboyBootROM, sizeof(utils::gameboyBootROM));
-
 	}
 
 	void CPU::Pause()
@@ -124,6 +121,23 @@ namespace emu
 			memory.memory[0xFF4A] = 0x00;
 			memory.memory[0xFF4B] = 0x00;
 			memory.memory[0xFFFF] = 0x00;
+
+			memory.memory[0xff30] = 0x84;
+			memory.memory[0xff31] = 0x40;
+			memory.memory[0xff32] = 0x43;
+			memory.memory[0xff33] = 0xaa;
+			memory.memory[0xff34] = 0x2d;
+			memory.memory[0xff35] = 0x78;
+			memory.memory[0xff36] = 0x92;
+			memory.memory[0xff37] = 0x3c;
+			memory.memory[0xff38] = 0x60;
+			memory.memory[0xff39] = 0x59;
+			memory.memory[0xff3a] = 0x59;
+			memory.memory[0xff3b] = 0xb0;
+			memory.memory[0xff3c] = 0x34;
+			memory.memory[0xff3d] = 0xb8;
+			memory.memory[0xff3e] = 0x2e;
+			memory.memory[0xff3f] = 0xda;
 		}
 
 		running = true;
@@ -159,6 +173,13 @@ namespace emu
 			if (!flags.halt)
 				stepCycle = step();
 
+			if (memory[0xff02] == 0x81) {
+				char c = memory[0xff01];
+				printf("%c", c);
+				memory.memory[0xff02] = 0x0;
+			}
+
+
 			if (flags.enableImeCountdown > 0)
 			{
 				if ((--flags.enableImeCountdown) == 0)
@@ -178,6 +199,8 @@ namespace emu
 	{
 		uint32_t bgTileData = memory[0xff40] & (1 << 4) ? 0x8000 : 0x8800;
 		uint32_t bgTileMap = memory[0xff40] & (1 << 3) ? 0x9c00 : 0x9800;
+		uint32_t scx = memory[0xff43];
+		uint32_t scy = memory[0xff42];
 
 		// tmp
 		uint32_t color_palette[] = {

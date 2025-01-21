@@ -254,6 +254,9 @@ namespace rdr
 
 	void Renderer::BlitToWindow(Texture* texture, const TextureBlitInformation& blitInfo)
 	{
+		if (renderWindow->mConfig.minimized)
+			return;
+
 		utils::blit_image(
 			renderWindow->mConfig.renderInfo->commandBuffer.GetCommandBuffer(),
 			texture->GetConfig().impl->vkImage,
