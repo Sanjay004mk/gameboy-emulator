@@ -28,6 +28,7 @@ namespace emu
 						std::string file;
 						switch (e.GetKeyCode())
 						{
+							// v sync
 						case rdr::Key::D1:
 							RDR_LOG_TRACE("Setting Present Mode to No vsync");
 							window->SetPresentMode(rdr::PresentMode::NoVSync);
@@ -41,6 +42,7 @@ namespace emu
 							window->SetPresentMode(rdr::PresentMode::VSync);
 							break;
 
+							// rom select
 						case rdr::Key::O:
 							file = window->OpenFile("Gameboy Rom (.gb)\0*.gb\0");
 							if (file != std::string())
@@ -50,9 +52,16 @@ namespace emu
 							}
 							break;
 
+							// play / pause emulation
 						case rdr::Key::P:
 							cpu->Toggle();
 							RDR_LOG_INFO("Emulation is {}", cpu->isRunning() ? "Running" : "Paused");
+							break;
+
+							// fullscreen toggle
+						case rdr::Key::F11:
+							RDR_LOG_INFO("Fullscreen: {}", !window->GetConfig().fullscreen);
+							window->SetFullscreen(!window->GetConfig().fullscreen);
 							break;
 
 						}
@@ -71,6 +80,26 @@ namespace emu
 
 			blitInfo.dstMax = blitInfo.dstMin + size;
 			blitInfo.filter = rdr::SamplerFilter::Nearest;
+
+			window->RegisterCallback<rdr::WindowResizeEvent>([&](rdr::WindowResizeEvent& e)
+				{
+					if (e.GetHeight() == 0 || e.GetWidth() == 0)
+						return;
+
+					uint32_t x = e.GetWidth(), y = e.GetHeight();
+					glm::ivec2 size(glm::min(x, y));
+
+					if (x > y)
+						blitInfo.dstMin.x = (x - y) / 2;
+					else
+						blitInfo.dstMin.y = (y - x) / 2;
+
+					blitInfo.dstMax = blitInfo.dstMin + size;
+				});
+
+
+
+			
 
 			while (!window->ShouldClose())
 			{
