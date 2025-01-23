@@ -4,7 +4,7 @@
 
 int main(int argc, const char** argv)
 {
-	emu::StartEmulator(argc, argv);
+	emu::Emulator::StartEmulator(argc, argv);
 
 	return 0;
 }

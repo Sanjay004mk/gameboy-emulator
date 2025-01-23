@@ -24,3 +24,7 @@
 #define RDRAPI
 #endif
 #endif
+
+// converting to static lib
+#undef RDRAPI
+#define RDRAPI

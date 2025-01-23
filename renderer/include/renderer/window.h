@@ -102,9 +102,11 @@ namespace rdr
 		void SetupSurface();
 		void SetupSwapchain();
 		void SetupCommandUnit();
+		void SetupImGui();
 		void CleanupSurface();
 		void CleanupSwapchain();
 		void CleanupCommandUnit();
+		void CleanupImGui();
 
 		void RegisterCallback(EventID eventType, EventCallbackFunction callback);
 

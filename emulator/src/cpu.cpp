@@ -61,12 +61,12 @@ namespace emu
 
 	void CPU::Reset()
 	{
-		pc = 0x000;
+		pc = 0x100;
 
-		AF.b16 = 0x01b0;
-		BC.b16 = 0x0013;
-		DE.b16 = 0x00d8;
-		HL.b16 = 0x014d;
+		AF.b16 = 0x1180;
+		BC.b16 = 0x0000;
+		DE.b16 = 0xff56;
+		HL.b16 = 0x000d;
 		sp = 0xfffe;
 
 		{
@@ -122,6 +122,8 @@ namespace emu
 		}
 
 		running = true;
+		divCycle = 0;
+		timerCycles = 0;
 	}
 
 	void CPU::Resume()
@@ -145,11 +147,11 @@ namespace emu
 		if (!running)
 			return;
 
-		uint32_t stepCycle = 1, totalCycles = 1;
+		uint32_t stepCycle = 0, totalCycles = 0;
 
 		while (totalCycles < (frequency / 60))
 		{
-			stepCycle = 1;
+			stepCycle = 4;
 
 			if (!flags.halt)
 				stepCycle = step();
@@ -158,13 +160,6 @@ namespace emu
 				char c = memory[0xff01];
 				printf("%c", c);
 				memory.memory[0xff02] = 0x0;
-			}
-
-
-			if (flags.enableImeCountdown > 0)
-			{
-				if ((--flags.enableImeCountdown) == 0)
-					flags.ime = true;
 			}
 
 			ppu.step(stepCycle);
@@ -225,8 +220,6 @@ namespace emu
 
 	void CPU::updateTimer(uint32_t cycles)
 	{
-		static uint32_t divCycle = 0, timerCycles = 0;
-		
 		// increment divider clock every 256 cycles <=> 16384 times / sec
 		if ((divCycle += cycles) >= 256)
 		{
@@ -243,7 +236,7 @@ namespace emu
 			switch (rate)
 			{
 			case 0:
-				freq = 1024;
+				freq = 1024; 
 				break;
 			case 1:
 				freq = 16;
@@ -256,14 +249,15 @@ namespace emu
 				break;
 			}
 
-			while (timerCycles >= freq)
+			if (timerCycles >= freq)
 			{
 				memory.memory[0xff05]++;
-				if (memory.memory[0xff05] == 0x0)
+				if (memory.memory[0xff05] == 0x00)
 				{
 					memory.memory[0xff05] = memory.memory[0xff06];
 					memory.memory[0xff0f] |= 4;
 				}
+
 				timerCycles -= freq;
 			}
 		}

@@ -27,6 +27,8 @@ namespace rdr
 		RenderEngine(const RendererConfiguration& config);
 		~RenderEngine();
 
+		void WaitIdle() const;
+
 		VkInstance vkInstance = nullptr;
 
 #if defined(RDR_DEBUG)
@@ -76,14 +78,14 @@ namespace rdr
 		VkCommandBuffer& GetCommandBuffer(uint32_t index = 0) { return commandBuffers[frameIndex][index]; }
 		VkCommandPool& GetCommandPool() { return vkCommandPools[frameIndex]; }
 		VkFence& GetFence() { return vkFences[frameIndex]; }
-		VkSemaphore& GetImageSemaphore() { return vkImageAcquiredSemaphores[frameIndex]; }
-		VkSemaphore& GetRenderSemaphore() { return vkRenderFinishedSemaphores[frameIndex]; }
+		VkSemaphore& GetStartSemaphore() { return vkStartRenderSemaphores[frameIndex]; }
+		VkSemaphore& GetFinishSemaphore() { return vkRenderFinishedSemaphores[frameIndex]; }
 
 		std::vector<VkCommandPool> vkCommandPools;
 		std::vector<CommandBuffers> commandBuffers;
 
 		std::vector<VkFence> vkFences;
-		std::vector<VkSemaphore> vkImageAcquiredSemaphores;
+		std::vector<VkSemaphore> vkStartRenderSemaphores;
 		std::vector<VkSemaphore> vkRenderFinishedSemaphores;
 
 		uint32_t frameIndex = 0;
@@ -96,15 +98,27 @@ namespace rdr
 		}
 	};
 
+	struct ImGuiRenderInformation
+	{
+		std::vector<VkFramebuffer> frameBuffers;
+		VkRenderPass renderpass;
+		VkDescriptorPool descriptorPool;
+	};
+
 	struct WindowRenderInformation
 	{
 		VkImage& GetImage() { return swapchainImages[imageIndex].first; }
 
 		VkSurfaceKHR vkSurface;
+		VkFormat surfaceFormat;
 		VkSwapchainKHR vkSwapchain;
 		std::vector<std::pair<VkImage, VkImageView>> swapchainImages;
-		WindowCommandUnit commandBuffer;
+		WindowCommandUnit commandBuffer, imguiCommandBuffer;
+		ImGuiRenderInformation imguiInfo;
+
 		uint32_t imageIndex = 0;
+		bool mainWindow = false;
+		static inline bool imguiInitialized = false;
 	};
 
 	struct TextureImplementationInformation

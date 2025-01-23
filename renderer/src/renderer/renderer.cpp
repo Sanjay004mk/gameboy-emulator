@@ -11,6 +11,9 @@
 
 #include <stb_image.h>
 
+#include <imgui_impl_vulkan.h>
+#include <imgui_impl_glfw.h>
+
 namespace utils
 {
 	static VkFormat to_vk_format(rdr::TextureFormat format)
@@ -396,12 +399,38 @@ namespace rdr
 				primaryGPU = allDevices[0]->Init(vkInstance);
 		}
 
-		// Initial global Command pool
+		// Initialize global Command pool
 		CommandBuffers::InitCommandPool();
+
+		// Setup Dear ImGui context
+		IMGUI_CHECKVERSION();
+		ImGui::CreateContext();
+		ImGuiIO& io = ImGui::GetIO(); (void)io;
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
+		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
+		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+		//io.ConfigViewportsNoAutoMerge = true;
+		//io.ConfigViewportsNoTaskBarIcon = true;
+		//ImGui::DockSpace(ImGui::GetID("MyDockspace"));
+
+		// Setup Dear ImGui style
+		ImGui::StyleColorsDark();
+		//ImGui::StyleColorsLight();
+
+		// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
+		ImGuiStyle& style = ImGui::GetStyle();
+		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+		{
+			style.WindowRounding = 0.0f;
+			style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+		}
 	}
 
 	RenderEngine::~RenderEngine()
 	{
+		ImGui::DestroyContext();
+
 		CommandBuffers::DestroyCommandPool();
 
 		delete primaryGPU;
@@ -415,6 +444,14 @@ namespace rdr
 
 		vkDestroyInstance(vkInstance, nullptr);
 		RDR_LOG_TRACE("Destroyed Vulkan instance");
+	}
+
+	void RenderEngine::WaitIdle() const
+	{
+
+		for (auto& device : allDevices)
+			if (device)
+				vkDeviceWaitIdle(device->vkDevice);
 	}
 
 	GPU::GPU(VkInstance vkInstance, VkPhysicalDevice device)
@@ -612,8 +649,8 @@ namespace rdr
 			bool surfaceFormatSet = false;
 
 			std::array<VkFormat, 5> formats = { 
-				VK_FORMAT_B8G8R8A8_SRGB,
 				VK_FORMAT_B8G8R8A8_UNORM, 
+				VK_FORMAT_B8G8R8A8_SRGB,
 				VK_FORMAT_R8G8B8A8_SNORM, 
 				VK_FORMAT_B8G8R8_UNORM, 
 				VK_FORMAT_R8G8B8_SNORM 
@@ -701,7 +738,7 @@ namespace rdr
 		swapchainCreateInfo.imageFormat = useFormat.format;
 		swapchainCreateInfo.imageColorSpace = useFormat.colorSpace;
 		swapchainCreateInfo.presentMode = usePresentMode;
-		swapchainCreateInfo.minImageCount = surfaceCapabilities.minImageCount;
+		swapchainCreateInfo.minImageCount = glm::min(surfaceCapabilities.maxImageCount, 2u);
 		swapchainCreateInfo.imageExtent = extent;
 
 		swapchainCreateInfo.clipped = VK_TRUE;
@@ -715,6 +752,8 @@ namespace rdr
 
 		err = vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain);
 		RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create swapchain", err);
+
+		mConfig.renderInfo->surfaceFormat = useFormat.format;
 
 		uint32_t imageCount = 0;
 		vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
@@ -749,42 +788,192 @@ namespace rdr
 		VkResult err{};
 		VkDevice vkDevice = mConfig.gpuDevice->vkDevice;
 
-		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
-		cb.vkCommandPools.resize(imageCount);
-		cb.commandBuffers.resize(imageCount);
-		cb.vkFences.resize(imageCount);
-		cb.vkImageAcquiredSemaphores.resize(imageCount);
-		cb.vkRenderFinishedSemaphores.resize(imageCount);
-
-		VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-		poolCreateInfo.queueFamilyIndex = mConfig.gpuDevice->vkGraphicsQueueIndex;
-
-		for (auto& pool : cb.vkCommandPools)
+		WindowCommandUnit* commandBuffers[] = { &mConfig.renderInfo->commandBuffer, &mConfig.renderInfo->imguiCommandBuffer };
+		for (auto& cb : commandBuffers)
 		{
-			err = vkCreateCommandPool(vkDevice, &poolCreateInfo, nullptr, &pool);
-			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command pool", err);
+			cb->vkCommandPools.resize(imageCount);
+			cb->commandBuffers.resize(imageCount);
+			cb->vkFences.resize(imageCount);
+			cb->vkStartRenderSemaphores.resize(imageCount);
+			cb->vkRenderFinishedSemaphores.resize(imageCount);
+
+			VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+			poolCreateInfo.queueFamilyIndex = mConfig.gpuDevice->vkGraphicsQueueIndex;
+
+			for (auto& pool : cb->vkCommandPools)
+			{
+				err = vkCreateCommandPool(vkDevice, &poolCreateInfo, nullptr, &pool);
+				RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create command pool", err);
+			}
+
+			for (uint32_t i = 0; i < imageCount; i++)
+			{
+				cb->commandBuffers[i].Init(cb->vkCommandPools[i], (uint32_t)imageCount); // TODO add better no. of command buffers to allocate by default
+			}
+
+			VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+			fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+			VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+
+			for (size_t i = 0; i < imageCount; i++)
+			{
+				err = vkCreateFence(vkDevice, &fenceCreateInfo, nullptr, &cb->vkFences[i]);
+				RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
+
+				err = vkCreateSemaphore(vkDevice, &semaphoreCreateInfo, nullptr, &cb->vkStartRenderSemaphores[i]);
+				RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
+
+				err = vkCreateSemaphore(vkDevice, &semaphoreCreateInfo, nullptr, &cb->vkRenderFinishedSemaphores[i]);
+				RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
+			}
+		}
+	}
+
+	void Window::SetupImGui()
+	{
+		if (WindowRenderInformation::imguiInitialized)
+			return;
+
+		WindowRenderInformation::imguiInitialized = mConfig.renderInfo->mainWindow = true;
+
+		size_t imageCount = mConfig.renderInfo->swapchainImages.size();
+		VkResult err;
+
+		// imgui Descriptor pool creation
+		{
+			VkDescriptorPoolSize poolSizes[] =
+			{
+				{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+				{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+				{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+				{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+			};
+
+			VkDescriptorPoolCreateInfo poolCI{};
+			poolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+			poolCI.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+			poolCI.maxSets = 1000 * (uint32_t)(sizeof(poolSizes) / sizeof(VkDescriptorPoolSize));
+			poolCI.poolSizeCount = (uint32_t)(sizeof(poolSizes) / sizeof(VkDescriptorPoolSize));
+			poolCI.pPoolSizes = poolSizes;
+
+			err = vkCreateDescriptorPool(primaryGPU->vkDevice, &poolCI, nullptr, &mConfig.renderInfo->imguiInfo.descriptorPool);
+			RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan {}: Failed to create descriptor pool!", err);
 		}
 
-		for (uint32_t i = 0; i < imageCount; i++)
+		// imgui render pass creation
 		{
-			cb.commandBuffers[i].Init(cb.vkCommandPools[i], (uint32_t)imageCount); // TODO add better no. of command buffers to allocate by default
+
+			VkAttachmentDescription attachment = {};
+			attachment.format = mConfig.renderInfo->surfaceFormat;
+			attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+			attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			attachment.initialLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+			VkAttachmentReference color_attachment = {};
+			color_attachment.attachment = 0;
+			color_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+			VkSubpassDescription subpass = {};
+			subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			subpass.colorAttachmentCount = 1;
+			subpass.pColorAttachments = &color_attachment;
+
+			VkSubpassDependency dependency = {};
+			dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+			dependency.dstSubpass = 0;
+			dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependency.srcAccessMask = 0;
+			dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+			VkRenderPassCreateInfo info = {};
+			info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+			info.attachmentCount = 1;
+			info.pAttachments = &attachment;
+			info.subpassCount = 1;
+			info.pSubpasses = &subpass;
+			info.dependencyCount = 1;
+			info.pDependencies = &dependency;
+			err = vkCreateRenderPass(primaryGPU->vkDevice, &info, nullptr, &mConfig.renderInfo->imguiInfo.renderpass);
+			RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan {}: Failed to create render pass!", err);
+
+			/* create framebuffers */
+			uint32_t width = mConfig.size.x;
+			uint32_t height = mConfig.size.y;
+
+			std::vector<std::vector<VkImageView>> attachments;
+
+			for (uint32_t i = 0; i < imageCount; i++)
+				attachments.push_back({ mConfig.renderInfo->swapchainImages[i].second });
+
+			auto& fb = mConfig.renderInfo->imguiInfo.frameBuffers;
+			fb.resize(imageCount);
+			for (size_t i = 0; i < fb.size(); i++)
+			{
+				VkFramebufferCreateInfo info{};
+				info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+				info.attachmentCount = (uint32_t)attachments[i].size();
+				info.height = height;
+				info.width = width;
+				info.layers = 1;
+				info.pAttachments = attachments[i].data();
+				info.renderPass = mConfig.renderInfo->imguiInfo.renderpass;
+
+				VkResult err = vkCreateFramebuffer(primaryGPU->vkDevice, &info, nullptr, &fb[i]);
+				RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan {}: Failed to create framebuffer!", err);
+			}
 		}
 
-		VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-		fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-		VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-
-		for (size_t i = 0; i < imageCount; i++)
+		// imgui initialization
 		{
-			err = vkCreateFence(vkDevice, &fenceCreateInfo, nullptr, &cb.vkFences[i]);
-			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
+			ImGui_ImplGlfw_InitForVulkan(mGlfwWindow, true);
 
-			err = vkCreateSemaphore(vkDevice, &semaphoreCreateInfo, nullptr, &cb.vkImageAcquiredSemaphores[i]);
-			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
+			ImGui_ImplVulkan_InitInfo info{};
+			info.Instance = Renderer::mRenderer->mRenderEngine->vkInstance;
+			info.PhysicalDevice = primaryGPU->vkPhysicalDevice;
+			info.Device = primaryGPU->vkDevice;
+			info.QueueFamily = primaryGPU->vkGraphicsQueueIndex;
+			info.Queue = primaryGPU->vkGraphicsQueue;
+			info.PipelineCache = VK_NULL_HANDLE;
+			info.DescriptorPool = mConfig.renderInfo->imguiInfo.descriptorPool;
+			info.Subpass = 0;
+			info.MinImageCount = (uint32_t)imageCount;
+			info.ImageCount = info.MinImageCount;
+			info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+			info.Allocator = nullptr;
+			info.CheckVkResultFn = [](VkResult err)
+				{
+					RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan: ImGui error: {}", err);
+				};
 
-			err = vkCreateSemaphore(vkDevice, &semaphoreCreateInfo, nullptr, &cb.vkRenderFinishedSemaphores[i]);
-			RDR_ASSERT_NO_MSG_BREAK(err == VK_SUCCESS);
+			ImGui_ImplVulkan_Init(&info, mConfig.renderInfo->imguiInfo.renderpass);
+		}
+
+		// setup fonts
+		{
+			CommandBuffers cb;
+			cb.Init();
+			cb.Begin();
+
+			ImGui_ImplVulkan_CreateFontsTexture(cb.Get());
+
+			cb.End();
+			cb.Submit();
+			vkDeviceWaitIdle(primaryGPU->vkDevice);
+
+			ImGui_ImplVulkan_DestroyFontUploadObjects();
 		}
 	}
 
@@ -812,25 +1001,44 @@ namespace rdr
 
 		vkDeviceWaitIdle(vkDevice);
 
-		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
+		WindowCommandUnit* commandBuffers[] = { &mConfig.renderInfo->commandBuffer, &mConfig.renderInfo->imguiCommandBuffer };
 
-		cb.commandBuffers.clear();
+		for (auto& cb : commandBuffers)
+		{
+			cb->commandBuffers.clear();
 
-		for (auto& pool : cb.vkCommandPools)
-			vkDestroyCommandPool(vkDevice, pool, nullptr);
-		cb.vkCommandPools.clear();
+			for (auto& pool : cb->vkCommandPools)
+				vkDestroyCommandPool(vkDevice, pool, nullptr);
+			cb->vkCommandPools.clear();
 
-		for (auto& fence : cb.vkFences)
-			vkDestroyFence(vkDevice, fence, nullptr);
-		cb.vkFences.clear();
+			for (auto& fence : cb->vkFences)
+				vkDestroyFence(vkDevice, fence, nullptr);
+			cb->vkFences.clear();
 
-		for (auto& semaphore : cb.vkImageAcquiredSemaphores)
-			vkDestroySemaphore(vkDevice, semaphore, nullptr);
-		cb.vkImageAcquiredSemaphores.clear();
+			for (auto& semaphore : cb->vkStartRenderSemaphores)
+				vkDestroySemaphore(vkDevice, semaphore, nullptr);
+			cb->vkStartRenderSemaphores.clear();
 
-		for (auto& semaphore : cb.vkRenderFinishedSemaphores)
-			vkDestroySemaphore(vkDevice, semaphore, nullptr);
-		cb.vkRenderFinishedSemaphores.clear();
+			for (auto& semaphore : cb->vkRenderFinishedSemaphores)
+				vkDestroySemaphore(vkDevice, semaphore, nullptr);
+			cb->vkRenderFinishedSemaphores.clear();
+		}
+	}
+
+	void Window::CleanupImGui()
+	{
+		if (!mConfig.renderInfo->mainWindow)
+			return;
+
+		ImGui_ImplVulkan_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+
+		vkDestroyDescriptorPool(primaryGPU->vkDevice, mConfig.renderInfo->imguiInfo.descriptorPool, nullptr);
+
+		for (auto& fb : mConfig.renderInfo->imguiInfo.frameBuffers)
+			vkDestroyFramebuffer(primaryGPU->vkDevice, fb, nullptr);
+
+		vkDestroyRenderPass(primaryGPU->vkDevice, mConfig.renderInfo->imguiInfo.renderpass, nullptr);
 	}
 
 	void Window::ResetSwapchain()
@@ -869,7 +1077,7 @@ namespace rdr
 			mConfig.gpuDevice->vkDevice, 
 			mConfig.renderInfo->vkSwapchain, 
 			UINT64_MAX, 
-			cb.GetImageSemaphore(),
+			cb.GetStartSemaphore(),
 			VK_NULL_HANDLE, 
 			&index
 		);
@@ -926,6 +1134,12 @@ namespace rdr
 			&subresourceRange
 		);
 
+		if (mConfig.renderInfo->mainWindow)
+		{
+			ImGui_ImplVulkan_NewFrame();
+			ImGui_ImplGlfw_NewFrame();
+			ImGui::NewFrame();
+		}
 	}
 
 	void Window::EndFrame()
@@ -934,34 +1148,10 @@ namespace rdr
 			return;
 
 		WindowCommandUnit& cb = mConfig.renderInfo->commandBuffer;
+		WindowCommandUnit& imguicb = mConfig.renderInfo->imguiCommandBuffer;
 		uint32_t& index = mConfig.renderInfo->imageIndex;
 
 		VkImage& image = mConfig.renderInfo->swapchainImages[index].first;
-
-		VkImageSubresourceRange subresourceRange{};
-		subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		subresourceRange.baseArrayLayer = 0;
-		subresourceRange.baseMipLevel = 0;
-		subresourceRange.layerCount = 1;
-		subresourceRange.levelCount = 1;
-
-		VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		barrier.subresourceRange = subresourceRange;
-		barrier.image = image;
-
-		vkCmdPipelineBarrier(
-			cb.GetCommandBuffer(),
-			VK_PIPELINE_STAGE_TRANSFER_BIT,
-			VK_PIPELINE_STAGE_TRANSFER_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &barrier
-		);
 
 		vkEndCommandBuffer(cb.GetCommandBuffer());
 
@@ -971,12 +1161,66 @@ namespace rdr
 		info.commandBufferCount = 1;
 		info.pCommandBuffers = &cb.GetCommandBuffer();
 		info.signalSemaphoreCount = 1;
-		info.pSignalSemaphores = &cb.GetRenderSemaphore();
+		info.pSignalSemaphores = &cb.GetFinishSemaphore();
 		info.waitSemaphoreCount = 1;
-		info.pWaitSemaphores = &cb.GetImageSemaphore();
+		info.pWaitSemaphores = &cb.GetStartSemaphore();
 		info.pWaitDstStageMask = dstStageMask;
 
-		VkResult err = vkQueueSubmit(mConfig.gpuDevice->vkGraphicsQueue, 1, &info, cb.GetFence());
+		VkFence fence = mConfig.renderInfo->mainWindow ? VK_NULL_HANDLE : cb.GetFence();
+		VkResult err = vkQueueSubmit(mConfig.gpuDevice->vkGraphicsQueue, 1, &info, fence);
+
+		// render imgui
+		if (mConfig.renderInfo->mainWindow)
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			io.DisplaySize = ImVec2((float)mConfig.size.x, (float)mConfig.size.y);
+
+			ImGui::Render();
+			ImDrawData* main_draw_data = ImGui::GetDrawData();
+
+			vkResetCommandPool(mConfig.gpuDevice->vkDevice, imguicb.GetCommandPool(), 0);
+
+			VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+			vkBeginCommandBuffer(imguicb.GetCommandBuffer(), &beginInfo);
+
+			VkRenderPassBeginInfo rpinfo{};
+			rpinfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			rpinfo.framebuffer = mConfig.renderInfo->imguiInfo.frameBuffers[index];
+			rpinfo.renderPass = mConfig.renderInfo->imguiInfo.renderpass;
+			rpinfo.renderArea.extent = { mConfig.size.x , mConfig.size.y };
+			rpinfo.clearValueCount = 0;
+
+			vkCmdBeginRenderPass(imguicb.GetCommandBuffer(), &rpinfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			ImGui_ImplVulkan_RenderDrawData(main_draw_data, imguicb.GetCommandBuffer());
+
+			vkCmdEndRenderPass(imguicb.GetCommandBuffer());
+
+			VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+			vkEndCommandBuffer(imguicb.GetCommandBuffer());
+
+			VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+			submitInfo.commandBufferCount = 1;
+			submitInfo.pCommandBuffers = &imguicb.GetCommandBuffer();
+			submitInfo.signalSemaphoreCount = 1;
+			submitInfo.pSignalSemaphores = &imguicb.GetFinishSemaphore();
+			submitInfo.waitSemaphoreCount = 1;
+			submitInfo.pWaitSemaphores = &cb.GetFinishSemaphore();
+			submitInfo.pWaitDstStageMask = dstStageMask;
+
+			VkResult err = vkQueueSubmit(mConfig.gpuDevice->vkGraphicsQueue, 1, &submitInfo, cb.GetFence());
+
+			// Update and Render additional Platform Windows
+			if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+			{
+				ImGui::UpdatePlatformWindows();
+				ImGui::RenderPlatformWindowsDefault();
+			}
+
+		}
 
 		vkQueueWaitIdle(mConfig.gpuDevice->vkGraphicsQueue);
 
@@ -985,11 +1229,12 @@ namespace rdr
 		presentInfo.pSwapchains = &mConfig.renderInfo->vkSwapchain;
 		presentInfo.pImageIndices = &index;
 		presentInfo.waitSemaphoreCount = 1;
-		presentInfo.pWaitSemaphores = &cb.GetRenderSemaphore();
+		presentInfo.pWaitSemaphores = mConfig.renderInfo->mainWindow ? &imguicb.GetFinishSemaphore() : &cb.GetFinishSemaphore();
 
 		vkQueuePresentKHR(mConfig.gpuDevice->vkGraphicsQueue, &presentInfo);
 
 		cb++;
+		imguicb++;
 	}
 
 	Buffer::Buffer(const BufferConfiguration& config, const void* data)

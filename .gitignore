@@ -21,6 +21,10 @@ ext/glfw/glfw.vcxproj
 ext/glfw/glfw.vcxproj.filters
 ext/glfw/glfw.vcxproj.user
 
+ext/imgui/glfw.vcxproj
+ext/imgui/glfw.vcxproj.filters
+ext/imgui/glfw.vcxproj.user
+
 ext/spdlog/spdlog.vcxproj
 ext/spdlog/spdlog.vcxproj.filters
 ext/spdlog/spdlog.vcxproj.spdlog

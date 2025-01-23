@@ -13,6 +13,7 @@ project "emulator"
         "%{wks.location}/renderer/include",
         "%{IncludeDir.glm}",
         "%{IncludeDir.spdlog}",
+        "%{IncludeDir.imgui}",
         "src/pch",
         "src",
     }
@@ -21,7 +22,10 @@ project "emulator"
     pchsource "src/pch/emupch.cpp"
 
 
-    links "renderer"
+    links 
+    {
+        "renderer",
+    }
 
     filter "system:windows"
         systemversion "latest"

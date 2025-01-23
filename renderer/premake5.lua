@@ -1,5 +1,5 @@
 project "renderer"
-    kind "SharedLib"
+    kind "StaticLib"
     language "C++"
     cppdialect "C++20"
 
@@ -21,12 +21,14 @@ project "renderer"
         "%{IncludeDir.spdlog}",
         "%{IncludeDir.vma}",
         "%{IncludeDir.stbimage}",
+        "%{IncludeDir.imgui}",
         "src",
     }
 
     links
     {
         "glfw",
+        "imgui",
         "%{Library.Vulkan}"
     }
 

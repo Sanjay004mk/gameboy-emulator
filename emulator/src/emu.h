@@ -2,5 +2,13 @@
 
 namespace emu
 {
-	extern void StartEmulator(int argc, const char** argv);
+	class Emulator
+	{
+	public:
+
+		static void StartEmulator(int argc, const char** argv);
+
+	private:
+
+	};
 }

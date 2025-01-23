@@ -6,11 +6,11 @@
 #include <renderer/rdr.h>
 #include <renderer/time.h>
 
+#include <imgui.h>
+
 namespace emu
 {
-	static bool emulationPaused = false;
-
-	extern void StartEmulator(int argc, const char** argv)
+	void Emulator::StartEmulator(int argc, const char** argv)
 	{
 		rdr::Renderer::Init(argc, argv, "emulator");
 
@@ -97,9 +97,8 @@ namespace emu
 					blitInfo.dstMax = blitInfo.dstMin + size;
 				});
 
-
-
-			
+			if (argc > 1)
+				cpu->LoadAndStart(argv[1]);
 
 			while (!window->ShouldClose())
 			{
@@ -107,6 +106,8 @@ namespace emu
 				start = end = rdr::Time::GetTime();
 
 				rdr::Renderer::BeginFrame(window);
+
+				ImGui::ShowDemoWindow();
 
 				cpu->Update();
 

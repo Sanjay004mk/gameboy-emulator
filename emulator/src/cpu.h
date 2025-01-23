@@ -16,7 +16,6 @@ namespace emu
 		uint8_t& data;
 		bool ime = false;
 		bool halt = false;
-		int16_t enableImeCountdown = -1;
 		Flags(uint8_t& data)
 			: data(data)
 		{
@@ -726,14 +725,12 @@ namespace emu
 		uint32_t di()
 		{
 			flags.ime = false;
-			flags.enableImeCountdown = -1;
-
 			return 4;
 		}
 
 		uint32_t ei()
 		{
-			flags.enableImeCountdown = 2;
+			flags.ime = true;
 			return 4;
 		}
 
@@ -870,5 +867,7 @@ namespace emu
 		PPU ppu;
 
 		bool running = false;
+
+		uint32_t divCycle = 0, timerCycles = 0;
 	};
 }

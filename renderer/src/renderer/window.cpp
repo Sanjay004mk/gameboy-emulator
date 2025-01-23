@@ -156,6 +156,7 @@ namespace rdr
 	Window::~Window()
 	{
 		RDR_LOG_TRACE("Destroying Window: [{}]", mConfig.title);
+		CleanupImGui();
 		CleanupCommandUnit();
 		CleanupSwapchain();
 		CleanupSurface();
@@ -229,6 +230,7 @@ namespace rdr
 		SetupSurface();
 		SetupSwapchain();
 		SetupCommandUnit();
+		SetupImGui();
 	}
 
 	void Window::RegisterCallback(EventID eventType, EventCallbackFunction callback)
