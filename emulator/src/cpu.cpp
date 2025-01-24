@@ -142,10 +142,11 @@ namespace emu
 		Reset();
 	}
 
-	void CPU::Update()
+	bool CPU::Update()
 	{
+		bool serial = false;
 		if (!running)
-			return;
+			return serial;
 
 		uint32_t stepCycle = 0, totalCycles = 0;
 
@@ -157,8 +158,9 @@ namespace emu
 				stepCycle = step();
 
 			if (memory[0xff02] == 0x81) {
+				serial = true;
 				char c = memory[0xff01];
-				printf("%c", c);
+				serialData += c;
 				memory.memory[0xff02] = 0x0;
 			}
 
@@ -169,6 +171,8 @@ namespace emu
 
 			totalCycles += stepCycle;
 		}
+
+		return serial;
 	}
 
 	void CPU::handleInterrupts()
@@ -261,5 +265,12 @@ namespace emu
 				timerCycles -= freq;
 			}
 		}
+	}
+
+	std::string CPU::SerialOut()
+	{
+		std::string ret = serialData;
+		serialData = "";
+		return ret;
 	}
 }

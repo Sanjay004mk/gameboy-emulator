@@ -74,7 +74,7 @@ namespace emu
 		CPU();
 		~CPU();
 
-		void Update();
+		bool Update();
 
 		void LoadRom(const char* file);
 		rdr::Texture* GetDisplayTexture() { return ppu.GetDisplayTexture(); }
@@ -85,6 +85,8 @@ namespace emu
 		bool isRunning() { return running; }
 		void Reset();
 		void LoadAndStart(const char* file);
+
+		std::string SerialOut();
 
 	private:
 		uint32_t step();
@@ -869,5 +871,6 @@ namespace emu
 		bool running = false;
 
 		uint32_t divCycle = 0, timerCycles = 0;
+		std::string serialData;
 	};
 }
