@@ -23,6 +23,7 @@ namespace emu
 		textureConfig.format = rdr::TextureFormat(4, rdr::eDataType::Ufloat8);
 		textureConfig.size = { 256, 256 };
 		textureConfig.type.Set<rdr::TextureType::copyEnable>(true);
+		textureConfig.type.Set<rdr::TextureType::sampled>(true);
 
 		displayTexture = new rdr::Texture(textureConfig);
 

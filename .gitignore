@@ -29,3 +29,4 @@ ext/imgui/glfw.vcxproj.user
 ext/spdlog/spdlog.vcxproj
 ext/spdlog/spdlog.vcxproj.filters
 ext/spdlog/spdlog.vcxproj.spdlog
+/emulator/imgui.ini
