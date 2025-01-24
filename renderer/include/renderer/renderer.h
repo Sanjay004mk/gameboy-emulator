@@ -47,7 +47,7 @@ namespace rdr
 		static RDRAPI Window* InstantiateWindow(const WindowConfiguration& windowConfig);
 		static RDRAPI void FreeWindow(Window* window);
 
-		static RDRAPI void BeginFrame(Window* window);
+		static RDRAPI void BeginFrame(Window* window, const glm::vec4& clearColor = {});
 		static RDRAPI void EndFrame();
 		static RDRAPI void Blit(Texture* srcTexture, Texture* dstTexture, const TextureBlitInformation& blitInfo);
 		static RDRAPI void BlitToWindow(Texture* texture, const TextureBlitInformation& blitInfo);

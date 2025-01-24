@@ -42,6 +42,8 @@ namespace rdr
 		void SetData(const Buffer* buffer, bool async = true);
 		void LoadDataToBuffer(Buffer* buffer, bool async = true);
 
+		void* GetImGuiID() const;
+
 	private:
 		void Init();
 		void LoadFromFile(const char* file);

@@ -233,10 +233,10 @@ namespace rdr
 		}
 	}
 
-	void Renderer::BeginFrame(Window* window)
+	void Renderer::BeginFrame(Window* window, const glm::vec4& clearColor)
 	{
 		renderWindow = window;
-		renderWindow->BeginFrame();
+		renderWindow->BeginFrame(clearColor);
 	}
 
 	void Renderer::EndFrame()
@@ -430,6 +430,9 @@ namespace rdr
 	RenderEngine::~RenderEngine()
 	{
 		ImGui::DestroyContext();
+
+		if (TextureImplementationInformation::imguiSampler)
+			vkDestroySampler(primaryGPU->vkDevice, TextureImplementationInformation::imguiSampler, nullptr);
 
 		CommandBuffers::DestroyCommandPool();
 
@@ -908,32 +911,6 @@ namespace rdr
 			info.pDependencies = &dependency;
 			err = vkCreateRenderPass(primaryGPU->vkDevice, &info, nullptr, &mConfig.renderInfo->imguiInfo.renderpass);
 			RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan {}: Failed to create render pass!", err);
-
-			/* create framebuffers */
-			uint32_t width = mConfig.size.x;
-			uint32_t height = mConfig.size.y;
-
-			std::vector<std::vector<VkImageView>> attachments;
-
-			for (uint32_t i = 0; i < imageCount; i++)
-				attachments.push_back({ mConfig.renderInfo->swapchainImages[i].second });
-
-			auto& fb = mConfig.renderInfo->imguiInfo.frameBuffers;
-			fb.resize(imageCount);
-			for (size_t i = 0; i < fb.size(); i++)
-			{
-				VkFramebufferCreateInfo info{};
-				info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-				info.attachmentCount = (uint32_t)attachments[i].size();
-				info.height = height;
-				info.width = width;
-				info.layers = 1;
-				info.pAttachments = attachments[i].data();
-				info.renderPass = mConfig.renderInfo->imguiInfo.renderpass;
-
-				VkResult err = vkCreateFramebuffer(primaryGPU->vkDevice, &info, nullptr, &fb[i]);
-				RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan {}: Failed to create framebuffer!", err);
-			}
 		}
 
 		// imgui initialization
@@ -974,6 +951,37 @@ namespace rdr
 			vkDeviceWaitIdle(primaryGPU->vkDevice);
 
 			ImGui_ImplVulkan_DestroyFontUploadObjects();
+		}
+	}
+
+	void Window::SetupFramebuffer()
+	{
+		size_t imageCount = mConfig.renderInfo->swapchainImages.size();
+
+		/* create framebuffers */
+		uint32_t width = mConfig.size.x;
+		uint32_t height = mConfig.size.y;
+
+		std::vector<std::vector<VkImageView>> attachments;
+
+		for (uint32_t i = 0; i < imageCount; i++)
+			attachments.push_back({ mConfig.renderInfo->swapchainImages[i].second });
+
+		auto& fb = mConfig.renderInfo->imguiInfo.frameBuffers;
+		fb.resize(imageCount);
+		for (size_t i = 0; i < fb.size(); i++)
+		{
+			VkFramebufferCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			info.attachmentCount = (uint32_t)attachments[i].size();
+			info.height = height;
+			info.width = width;
+			info.layers = 1;
+			info.pAttachments = attachments[i].data();
+			info.renderPass = mConfig.renderInfo->imguiInfo.renderpass;
+
+			VkResult err = vkCreateFramebuffer(primaryGPU->vkDevice, &info, nullptr, &fb[i]);
+			RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan {}: Failed to create framebuffer!", err);
 		}
 	}
 
@@ -1035,10 +1043,14 @@ namespace rdr
 
 		vkDestroyDescriptorPool(primaryGPU->vkDevice, mConfig.renderInfo->imguiInfo.descriptorPool, nullptr);
 
+		vkDestroyRenderPass(primaryGPU->vkDevice, mConfig.renderInfo->imguiInfo.renderpass, nullptr);
+	}
+
+	void Window::CleanupFramebuffer()
+	{
+
 		for (auto& fb : mConfig.renderInfo->imguiInfo.frameBuffers)
 			vkDestroyFramebuffer(primaryGPU->vkDevice, fb, nullptr);
-
-		vkDestroyRenderPass(primaryGPU->vkDevice, mConfig.renderInfo->imguiInfo.renderpass, nullptr);
 	}
 
 	void Window::ResetSwapchain()
@@ -1059,11 +1071,13 @@ namespace rdr
 			CleanupCommandUnit();
 			SetupCommandUnit();
 		}
+		CleanupFramebuffer();
+		SetupFramebuffer();
 
 		vkDestroySwapchainKHR(mConfig.gpuDevice->vkDevice, oldSwapchain, nullptr);
 	}
 
-	void Window::BeginFrame()
+	void Window::BeginFrame(const glm::vec4& clearColor)
 	{
 		if (mConfig.minimized)
 			return;
@@ -1093,11 +1107,11 @@ namespace rdr
 
 		vkBeginCommandBuffer(cb.GetCommandBuffer(), &beginInfo);
 
-		VkClearColorValue clearColor = {
-			0.1f,
-			0.1f,
-			0.1f,
-			1.0f
+		VkClearColorValue vkclearColor = {
+			clearColor.r,
+			clearColor.g,
+			clearColor.b,
+			clearColor.a
 		};
 
 		VkImageSubresourceRange subresourceRange{};
@@ -1129,7 +1143,7 @@ namespace rdr
 			cb.GetCommandBuffer(),
 			image,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			&clearColor,
+			&vkclearColor,
 			1,
 			&subresourceRange
 		);
@@ -1476,6 +1490,29 @@ namespace rdr
 			VkResult err = vkCreateImageView(Renderer::GetPrimaryGPU()->vkDevice, &viewCreateInfo, nullptr, &impl.vkImageView);
 			RDR_ASSERT_MSG_BREAK(err == VK_SUCCESS, "Vulkan {}: Failed to create image view", err);
 		}
+
+		// create imgui sampler if it doesn't exist
+		if (!impl.imguiSampler)
+		{
+			VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+			samplerInfo.magFilter = VK_FILTER_LINEAR;
+			samplerInfo.minFilter = VK_FILTER_LINEAR;
+			samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerInfo.anisotropyEnable = VK_FALSE;
+			samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+			samplerInfo.unnormalizedCoordinates = VK_FALSE;
+			samplerInfo.compareEnable = VK_FALSE;
+			samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+			samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+			samplerInfo.minLod = 0.0f;
+			samplerInfo.maxLod = 0.0f;
+			samplerInfo.mipLodBias = 0.0f;
+
+			VkResult err = vkCreateSampler(primaryGPU->vkDevice, &samplerInfo, nullptr, &impl.imguiSampler);
+			RDR_ASSERT_MSG(err == VK_SUCCESS, "Vulkan {}: Failed to create imgui sampler", err);
+		}
 	}
 
 	Texture::~Texture()
@@ -1595,5 +1632,11 @@ namespace rdr
 				mConfig.impl->vkImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			}
 		}
+	}
+
+	void* Texture::GetImGuiID() const
+	{
+		auto& id = mConfig.impl->imguiDescriptorSet;
+		return id ? id : (id = ImGui_ImplVulkan_AddTexture(TextureImplementationInformation::imguiSampler, mConfig.impl->vkImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
 	}
 }

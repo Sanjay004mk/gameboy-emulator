@@ -127,6 +127,8 @@ namespace rdr
 		VkImageView vkImageView = nullptr;
 		VkImageLayout vkImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		VmaAllocation vmaAllocation = nullptr;
+		VkDescriptorSet imguiDescriptorSet = nullptr;
+		static inline VkSampler imguiSampler = nullptr;
 	};
 
 	struct BufferImplementationInformation

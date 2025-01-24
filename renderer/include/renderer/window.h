@@ -103,14 +103,16 @@ namespace rdr
 		void SetupSwapchain();
 		void SetupCommandUnit();
 		void SetupImGui();
+		void SetupFramebuffer();
 		void CleanupSurface();
 		void CleanupSwapchain();
 		void CleanupCommandUnit();
 		void CleanupImGui();
+		void CleanupFramebuffer();
 
 		void RegisterCallback(EventID eventType, EventCallbackFunction callback);
 
-		void BeginFrame();
+		void BeginFrame(const glm::vec4& clearColor);
 		void EndFrame();
 
 		GLFWwindow* mGlfwWindow;

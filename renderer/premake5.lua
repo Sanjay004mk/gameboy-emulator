@@ -40,9 +40,10 @@ project "renderer"
     pchheader "renderer/rdrpch.h"
     pchsource "src/rdrpch.cpp"
 
-    postbuildcommands "{COPYFILE} %{cfg.buildtarget.relpath} %{cfg.buildtarget.directory}/../emulator"
+    -- postbuildcommands "{COPYFILE} %{cfg.buildtarget.relpath} %{cfg.buildtarget.directory}/../emulator"
 
     filter "system:windows"
+        linkoptions "-IGNORE:4006"
         systemversion "latest"
 
     filter "configurations:Debug"
