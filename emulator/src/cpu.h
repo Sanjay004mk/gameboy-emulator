@@ -74,7 +74,7 @@ namespace emu
 		CPU();
 		~CPU();
 
-		bool Update();
+		void Update();
 
 		void LoadRom(const char* file);
 		rdr::Texture* GetDisplayTexture() { return ppu.GetDisplayTexture(); }
@@ -89,6 +89,7 @@ namespace emu
 		std::string SerialOut();
 
 	private:
+		uint32_t SingleStepUpdate();
 		uint32_t step();
 		uint32_t prefix();
 
@@ -872,5 +873,8 @@ namespace emu
 
 		uint32_t divCycle = 0, timerCycles = 0;
 		std::string serialData;
+		bool serialPresent = false;
+
+		friend class Debugger;
 	};
 }

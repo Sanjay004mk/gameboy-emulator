@@ -281,7 +281,7 @@ namespace emu
 		window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
 		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoSavedSettings;
 
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 10.0f));
 		ImGui::Begin("Gameplay", nullptr, window_flags);
 		ImGui::PopStyleVar(3);
 
@@ -302,14 +302,12 @@ namespace emu
 
 		ImGui::End();
 
-		// TODO change emulation speed
-		static float acc = 0.f;
-		if ((acc += ts) < (1.f / 60.f))
-			return;
+		if ((timeSinceLastUpdate += ts) >= (defaultSpeed / emulationSpeed))
+		{
+			timeSinceLastUpdate = 0.f;
+			mCpu->Update();
+		}
 
-		acc = 0.f;
-
-		mCpu->Update();
 	}
 
 	void Emulator::ImGuiSetupDockspace()
@@ -337,6 +335,32 @@ namespace emu
 
 	void Emulator::ImGuiMenuBarOptions()
 	{
+		ImGui::SameLine();
+
+		if (ImGui::Button("Emulation", ImVec2(ImGui::CalcTextSize("Emulation").x + 14.f, topBarSize.y)))
+		{
+			ImGui::OpenPopup("Emulation Menu");
+		}
+
+		if (ImGui::BeginPopup("Emulation Menu"))
+		{
+			if (ImGui::MenuItem("Pause", "Ctrl + P"))
+				mCpu->Pause();
+
+			if (ImGui::MenuItem("Resume", "Ctrl + P"))
+				mCpu->Resume();
+
+			for (float i = 0.5f; i <= 5.f; i += 0.5f)
+			{
+				if (ImGui::MenuItem(("Speed: " + fmt::format("{:.1f}", i) + "x").c_str(), "Inc: ] Dec: ["))
+					emulationSpeed = i;
+			}
+
+			ImGui::InputFloat("Custom Speed", &emulationSpeed);
+
+
+			ImGui::EndPopup();
+		}
 
 	}
 
@@ -347,13 +371,24 @@ namespace emu
 
 	bool Emulator::OnKeyPressed(rdr::KeyPressedEvent& e)
 	{
+		if (e.GetKeyCode() == rdr::Key::LeftBracket)
+		{
+			emulationSpeed -= 0.1f;
+			return true;
+		}
+		else if (e.GetKeyCode() == rdr::Key::RightBracket)
+		{
+			emulationSpeed += 0.1f;
+			return true;
+		}
+
 		return false;
 	}
 
 	Debugger::Debugger(CPU* cpu)
 		: Emulator(cpu)
 	{
-		
+
 	}
 
 	Debugger::~Debugger()
@@ -364,29 +399,83 @@ namespace emu
 	void Debugger::Step(float ts)
 	{
 		OnImGuiUpdate();
-		// TODO change emulation speed
-		static float acc = 0.f;
-		if ((acc += ts) < (1.f / 60.f))
-			return;
 
-		acc = 0.f;
+		switch (emulationMode)
+		{
+		case Mode::Run:
+		{
+			if ((timeSinceLastUpdate += ts) >= (defaultSpeed / emulationSpeed))
+			{
+				timeSinceLastUpdate = 0.f;
+				mCpu->Update();
+			}
+			break;
+		}
+		case Mode::Step:
+		{
+			if (shouldStep)
+			{
+				shouldStep = false;
+				mCpu->SingleStepUpdate();
+			}
+			break;
+		}
+		}
 
-		if (mCpu->Update())
-			consoleOutput += mCpu->SerialOut();
+		if (mCpu->serialPresent)
+		{
+			consoleOutput += (mCpu->SerialOut());
+			consoleScrollToBottom = true;
+		}
 	}
 
 	bool Debugger::OnKeyPressed(rdr::KeyPressedEvent& e)
 	{
+		if (Emulator::OnKeyPressed(e))
+			return true;
+
+		if (e.GetKeyCode() == rdr::Key::F9)
+		{
+			shouldStep = true;
+			return true;
+		}
+		else if (e.GetKeyCode() == rdr::Key::F5 || (e.GetKeyCode() == rdr::Key::P && mAppInfo.window->IsKeyDown(rdr::Key::LeftControl)))
+		{
+			emulationMode = (Mode)(!(bool)(emulationMode));
+			return true;
+		}
+
 		return false;
 	}
 
 	void Debugger::OnImGuiUpdate()
 	{
+		// Instruction window
 		{
 			ImGui::Begin("Instructions");
+
+			uint32_t startAddr = glm::max(0, mCpu->pc - 50);
+			uint32_t endAddr = glm::min(0xffff, mCpu->pc + 50);
+			std::stringstream lines;
+
+			for (uint32_t i = startAddr; i < endAddr; i++)
+			{
+				if (i == mCpu->pc)
+					lines << "> ";
+
+				lines << "0x" << std::hex << i << " (" << std::dec << i << ") : ";
+				lines << "0x" << std::hex << (uint32_t)mCpu->memory[i] << std::endl;
+			}
+
+			std::string line;
+			while (std::getline(lines, line))
+				ImGui::Text(line.c_str());
+
+
 			ImGui::End();
 		}
 
+		// Emulator Window
 		{
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 0, 0 });
 			ImGui::Begin("Emulator");
@@ -408,19 +497,132 @@ namespace emu
 			ImGui::PopStyleVar();
 		}
 
+		// Register window
 		{
 			ImGui::Begin("Registers");
+
+			ImGui::Text("Registers");
+
+			struct RegInfo
+			{
+				uint16_t* reg = nullptr;
+				bool pad = true;
+				char buf[18] = { };
+			};
+
+			std::pair<RegInfo, const char*> registers[] = {
+				{ { &mCpu->AF.b16 }, "AF"},
+				{ { &mCpu->BC.b16 }, "BC"},
+				{ { &mCpu->DE.b16 }, "DE"},
+				{ { &mCpu->HL.b16 }, "HL"},
+				{ { &mCpu->sp, false }, "SP "},
+				{ { &mCpu->pc, false }, "PC" },
+			};
+
+			for (auto& [reg, name] : registers)
+			{
+				sprintf_s(reg.buf, "%04x", *(reg.reg));
+				if (ImGui::InputText(name, reg.buf, sizeof(reg.buf), ImGuiInputTextFlags_CharsHexadecimal))
+				{
+					// fill trailing digits with zeroes instead of making the value smaller
+					// to avoid register interchage
+					for (int i = 0; i < 4; i++)
+						if (!reg.buf[i])
+							reg.buf[i] = '0';
+
+					uint32_t regval = std::stoul(reg.buf, 0, 16);
+					if (regval <= 0xffff)
+						*(reg.reg) = (uint16_t)(regval);
+				}
+			}
+
+			ImGui::Separator();
+
+			ImGui::Text("Flags");
+
+			bool znhc[4] = {};
+			uint32_t bit = 7;
+			for (auto& b : znhc)
+			{
+				b = (mCpu->AF.lo & (1 << bit));
+				bit--;
+			}
+
+			std::pair<bool*, const char*> flags[] = {
+				{ &znhc[0], "Z" },
+				{ &znhc[1], "N" },
+				{ &znhc[2], "H" },
+				{ &znhc[3], "C" },
+				{ &mCpu->flags.ime, "IME" },
+				{ &mCpu->flags.halt, "Halt"},
+			};
+
+			uint32_t flagCount = 3;
+			for (auto& [flag, name] : flags)
+			{
+				ImGui::Checkbox(name, flag);
+				if (flagCount--)
+					ImGui::SameLine();
+				else
+					flagCount = 1;
+			}
+
+			bit = 7;
+			for (auto& b : znhc)
+			{
+				mCpu->AF.lo |= b ? (1 << bit) : 0;
+				bit--;
+			}
+
+			ImGui::Separator();
+
+
+
 			ImGui::End();
 		}
 
+		// Memory window
 		{
 			ImGui::Begin("Memory");
+
+			/*if (memoryDisplay.size() == 0)
+			{
+				std::stringstream ss;
+
+				for (uint32_t i = 0; i <= 0xfff; i++)
+				{
+					ss << std::hex << std::setw(3) << std::setfill('0') << i << "0 : ";
+					for (uint32_t j = 0; j < 0xf; j++)
+						ss << std::hex << std::setw(2) << std::setfill('0') << (uint32_t)mCpu->memory[i + j] << " ";
+					ss << std::endl;
+				}
+
+				std::string line;
+				while (std::getline(ss, line))
+					memoryDisplay.push_back(line);
+			}
+
+			for (auto& line : memoryDisplay)
+				ImGui::Text(line.c_str());*/
+
 			ImGui::End();
 		}
 
+		// Serial window
 		{
 			ImGui::Begin("Serial");
-			ImGui::TextWrapped(consoleOutput.c_str());
+
+			std::string line;
+			std::stringstream consoleStream(consoleOutput);
+			while (std::getline(consoleStream, line))
+				ImGui::TextWrapped(line.c_str());
+
+			if (consoleScrollToBottom)
+			{
+				consoleScrollToBottom = false;
+				ImGui::SetScrollHereY(1.f);
+			}
+
 			ImGui::End();
 		}
 
@@ -461,6 +663,34 @@ namespace emu
 
 	void Debugger::ImGuiMenuBarOptions()
 	{
+		Emulator::ImGuiMenuBarOptions();
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Debug", ImVec2(ImGui::CalcTextSize("Debug").x + 14.f, topBarSize.y)))
+		{
+			ImGui::OpenPopup("Debug Menu");
+		}
+
+		if (ImGui::BeginPopup("Debug Menu"))
+		{
+			if (ImGui::MenuItem("Run", "F5"))
+			{
+				emulationMode = Mode::Run;
+			}
+
+			if (ImGui::MenuItem("Step by Step", "F5"))
+			{
+				emulationMode = Mode::Step;
+			}
+
+			if (ImGui::MenuItem("Step", "F9"))
+			{
+				shouldStep = true;
+			}
+
+			ImGui::EndPopup();
+		}
 	}
 
 	void Debugger::ImGuiFooterOptions(const glm::vec2& region)

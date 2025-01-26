@@ -24,10 +24,10 @@ namespace emu
 
 		CPU* mCpu = nullptr;
 		bool buildDockspace = true;
+		float emulationSpeed = 1.f;
+		float timeSinceLastUpdate = 0.f;
 
-	private:
-		static void ImGuiBasicUI();
-
+		static inline constexpr float defaultSpeed = (1.f / 60.f);
 		struct ApplicationInformation
 		{
 			std::vector<Emulator*> emulators;
@@ -40,6 +40,9 @@ namespace emu
 		};
 		
 		static inline ApplicationInformation mAppInfo;
+
+	private:
+		static void ImGuiBasicUI();
 	};
 
 	class Debugger : public Emulator
@@ -58,5 +61,12 @@ namespace emu
 		void ImGuiFooterOptions(const glm::vec2& region) override;
 
 		std::string consoleOutput;
+		bool consoleScrollToBottom = true;
+
+		enum class Mode { Run = 0, Step = 1 };
+
+		Mode emulationMode = Mode::Step;
+		bool shouldStep = false;
+		std::vector<std::string> memoryDisplay;
 	};
 }
