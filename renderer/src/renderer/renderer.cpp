@@ -1275,7 +1275,7 @@ namespace rdr
 			if (mConfig.enableCopy)
 				createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
-			allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+			allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 			break;
 
 		case BufferType::GPUBuffer:

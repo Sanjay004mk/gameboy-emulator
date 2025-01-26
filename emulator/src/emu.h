@@ -18,6 +18,9 @@ namespace emu
 		static void StartEmulator(int argc, const char** argv);
 
 	protected:
+		virtual void OnDetach() {}
+		virtual void OnAttach() {}
+
 		virtual void ImGuiSetupDockspace();
 		virtual void ImGuiMenuBarOptions();
 		virtual void ImGuiFooterOptions(const glm::vec2& region);
@@ -35,6 +38,16 @@ namespace emu
 
 			rdr::Window* window = nullptr;
 			emu::CPU* cpu = nullptr;
+
+			void SetEmulator(uint32_t index)
+			{
+				GetCurrentEmulator().OnDetach();
+
+				currentEmulator = index;
+				
+				GetCurrentEmulator().buildDockspace = true;
+				GetCurrentEmulator().OnAttach();
+			}
 
 			Emulator& GetCurrentEmulator() { return *(emulators[currentEmulator]); }
 		};
@@ -59,6 +72,9 @@ namespace emu
 		void ImGuiSetupDockspace() override;
 		void ImGuiMenuBarOptions() override;
 		void ImGuiFooterOptions(const glm::vec2& region) override;
+
+		void OnAttach() override { mCpu->ppu.SetDebugMode(true); }
+		void OnDetach() override { mCpu->ppu.SetDebugMode(false); }
 
 		std::string consoleOutput;
 		bool consoleScrollToBottom = true;

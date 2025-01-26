@@ -16,9 +16,7 @@ namespace emu
 
 	void CPU::LoadRom(const char* file)
 	{
-		memory.rom = std::make_shared<ROM>(file);
-
-		memcpy_s(memory.memory, sizeof(memory.memory), memory.rom->data.data(), std::min(0x8000ull, memory.rom->data.size()));
+		memory.Init(file);
 	}
 
 	void CPU::Pause()
@@ -28,7 +26,9 @@ namespace emu
 
 	void CPU::Reset()
 	{
-		pc = 0x100;
+		memory.LoadBootRom();
+
+		pc = 0x0;
 
 		AF.b16 = 0x01b0;
 		BC.b16 = 0x0013;

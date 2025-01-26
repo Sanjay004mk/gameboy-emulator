@@ -118,6 +118,9 @@ namespace emu
 
 			float start, end, ts = 0.f;
 			start = end = rdr::Time::GetTime();
+
+			mAppInfo.GetCurrentEmulator().OnAttach();
+
 			while (!window->ShouldClose())
 			{
 				ts = end - start;
@@ -135,6 +138,8 @@ namespace emu
 
 				rdr::Renderer::PollEvents();
 			}
+
+			mAppInfo.GetCurrentEmulator().OnDetach();
 
 			for (auto& emulator : mAppInfo.emulators)
 				delete emulator;
@@ -200,14 +205,12 @@ namespace emu
 			{
 				if (ImGui::MenuItem("Run"))
 				{
-					mAppInfo.currentEmulator = 0;
-					mAppInfo.GetCurrentEmulator().buildDockspace = true;
+					mAppInfo.SetEmulator(0);
 				}
 
 				if (ImGui::MenuItem("Debug"))
 				{
-					mAppInfo.currentEmulator = 1;
-					mAppInfo.GetCurrentEmulator().buildDockspace = true;
+					mAppInfo.SetEmulator(1);
 				}
 
 				ImGui::EndPopup();
@@ -287,15 +290,15 @@ namespace emu
 
 		ImVec2 size = ImGui::GetContentRegionAvail();
 
-		if (size.x > size.y)
+		if (size.x >= size.y)
 		{
 			ImGui::SetCursorPosX((size.x - size.y) / 2.f);
-			size.x = size.y;
+			size.x = size.y * (160.0f / 144.0f);
 		}
 		else
 		{
 			ImGui::SetCursorPosY((size.y - size.x) / 2.f);
-			size.y = size.x;
+			size.y = size.x * (144.0f / 160.0f);
 		}
 
 		ImGui::Image(mCpu->GetDisplayTexture()->GetImGuiID(), size);
@@ -484,14 +487,42 @@ namespace emu
 			if (size.x > size.y)
 			{
 				ImGui::SetCursorPosX((size.x - size.y) / 2.f);
-				size.x = size.y;
+				size.x = size.y * (160.0f / 144.0f);
 			}
 			else
 			{
 				ImGui::SetCursorPosY((size.y - size.x) / 2.f);
-				size.y = size.x;
+				size.y = size.x * (144.0f / 160.0f);
 			}
 			ImGui::Image(mCpu->GetDisplayTexture()->GetImGuiID(), size);
+			ImGui::End();
+
+			ImGui::PopStyleVar();
+		}
+
+		// PPU Window
+		{
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 0, 0 });
+			ImGui::Begin("PPU");
+
+			ImVec2 size = ImGui::GetContentRegionAvail();
+			if (size.x > size.y)
+				size.x /= 3.f;
+			else
+				size.y /= 3.f;
+			
+			rdr::Texture* textures[] = {
+				mCpu->ppu.bg.texture,
+				mCpu->ppu.window.texture,
+				mCpu->ppu.sprite.texture
+			};
+			
+			for (auto& t : textures)
+			{
+				ImGui::Image(t->GetImGuiID(), size);
+				ImGui::SameLine();
+			}
+			
 			ImGui::End();
 
 			ImGui::PopStyleVar();
@@ -650,6 +681,7 @@ namespace emu
 			ImGui::DockBuilderDockWindow("Instructions", right);
 			ImGui::DockBuilderDockWindow("Registers", right_bottom);
 			ImGui::DockBuilderDockWindow("Emulator", centre);
+			ImGui::DockBuilderDockWindow("PPU", centre);
 			ImGui::DockBuilderDockWindow("Memory", bottom);
 			ImGui::DockBuilderDockWindow("Serial", bottom);
 		

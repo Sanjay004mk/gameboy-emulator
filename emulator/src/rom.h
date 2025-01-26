@@ -29,20 +29,32 @@ namespace emu
 
 	};
 
-
 	struct Memory
 	{
 		uint8_t memory[std::numeric_limits<uint16_t>::max() + 1] = {};
 		std::shared_ptr<ROM> rom;
 		bool romSelect = true;
 
+		void Init(const char* file);
+
 		// write
 		template <typename Integer>
 		uint8_t operator()(Integer i, uint8_t value)
 		{
+			if (i == 0xff50 && value)
+				LockBootRom();
+
+			// OAM transfer
+			if (i == 0xff46)
+			{
+				memory[i] = value;
+				uint32_t start = value * 0x100;
+				memcpy_s(memory + 0xfe00, 160, memory + value, 160);
+			}
+
 			if (rom->bankType == ROM::BankingType::MBC0)
 			{
-				if (i > 0x8000)
+				if (i >= 0x8000)
 					memory[i] = value;
 			}
 			else if (rom->bankType == ROM::BankingType::MBC1)
@@ -59,7 +71,7 @@ namespace emu
 				else if (i < 0x6000)
 				{
 					if (romSelect)
-						rom->romBankOffset = 0x4000ull * ((value & 0x3) << 5);
+						rom->romBankOffset = 0x4000ull * ((value & 0x3ull) << 5);
 					else
 						rom->ram.offset = 0x2000ull * (value & 3);
 				}
@@ -123,6 +135,9 @@ namespace emu
 		{
 			return *(reinterpret_cast<const T*>(&(*this)[i]));
 		}
+
+		void LoadBootRom();
+		void LockBootRom();
 	};
 
 }
