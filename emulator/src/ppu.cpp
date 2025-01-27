@@ -12,6 +12,18 @@ uint32_t color_palette[] = {
 	0xff010101
 };
 
+namespace utils
+{
+	uint32_t GetColorIndexFromTileRow(uint16_t tile, uint32_t x)
+	{
+		uint32_t index = 0;
+		index = ((tile << (x % 8)) & (0x0100)) ? 0x1 : 0x0;
+		index |= ((tile << (x % 8)) & (0x0001)) ? 0x2 : 0x0;
+
+		return index;
+	}
+}
+
 namespace emu
 {
 	PPU::TextureMap::TextureMap(uint32_t w, uint32_t h)
@@ -56,7 +68,7 @@ namespace emu
 	}
 
 	PPU::PPU(Memory& memory)
-		: memory(memory), display(160, 144), bg(256, 256), window(256, 256), sprite(256, 256), tileMap(256, 256), tiles(256, 256)
+		: memory(memory), display(160, 144), bg(256, 256), window(256, 256), sprite(256, 256), tiles(256, 256)
 	{
 		
 	}
@@ -185,7 +197,23 @@ namespace emu
 		window.LoadAndUpdate();
 		sprite.LoadAndUpdate();
 
-		// TODO implement
+		for (uint32_t i = 0x8000, x = 0, y = 0; i < 0x9800; i += 0x10, x += 8)
+		{
+			if (x == 256)
+			{
+				x = 0;
+				y += 8;
+			}
+			for (int j = 0; j < 8; j++)
+			{
+				uint16_t tile = memory.As<uint16_t>(i + (j * 2));
+
+				for (int k = 0; k < 8; k++)
+					tiles.cpuBuffer[(y + j) * 256 + x + k] = color_palette[utils::GetColorIndexFromTileRow(tile, k)];
+			}
+		}
+
+		tiles.LoadAndUpdate();
 	}
 
 	uint32_t PPU::GetPixelFromTile(uint32_t tileDataStart, uint32_t tileNumber, uint32_t x, uint32_t y, bool signedSeek) const
@@ -198,7 +226,7 @@ namespace emu
 
 		uint32_t location =
 			signedSeek ?
-			tileDataStart + ((int8_t)tileNumber * 0x10) + ((y % 8) * 2) : // signed indexing
+			tileDataStart + 0x800 + ((int8_t)tileNumber * 0x10) + ((y % 8) * 2) : // signed indexing
 			tileDataStart + (tileNumber * 0x10) + ((y % 8) * 2);
 
 		uint16_t tileData = memory.As<uint16_t>(location); // tile row
@@ -231,7 +259,7 @@ namespace emu
 
 	uint32_t PPU::GetTileMapOffset(uint32_t x, uint32_t y) const
 	{
-		return ((y / 8) * 4) + (x / 8);
+		return ((y / 8) * 32) + (x / 8);
 	}
 
 	void PPU::SetBG(uint32_t row)

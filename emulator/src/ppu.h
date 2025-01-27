@@ -121,7 +121,7 @@ namespace emu
 			void LoadAndUpdate(bool async = false) { LoadStagingBuffer(); UpdateTexture(async); }
 		};
 
-		TextureMap display, bg, window, sprite, tileMap, tiles;
+		TextureMap display, bg, window, sprite, tiles;
 		bool debugEnabled = false;
 
 		// LCD Control - 0xff40

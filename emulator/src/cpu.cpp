@@ -24,11 +24,9 @@ namespace emu
 		running = false;
 	}
 
-	void CPU::Reset()
+	void CPU::Reset(bool withBootRom)
 	{
-		memory.LoadBootRom();
-
-		pc = 0x0;
+		pc = withBootRom ? 0x0 : 0x100;
 
 		AF.b16 = 0x01b0;
 		BC.b16 = 0x0013;
@@ -36,57 +34,10 @@ namespace emu
 		HL.b16 = 0x014d;
 		sp = 0xfffe;
 
-		{
-			memory.memory[0xFF05] = 0x00;
-			memory.memory[0xFF06] = 0x00;
-			memory.memory[0xFF07] = 0x00;
-			memory.memory[0xFF10] = 0x80;
-			memory.memory[0xFF11] = 0xBF;
-			memory.memory[0xFF12] = 0xF3;
-			memory.memory[0xFF14] = 0xBF;
-			memory.memory[0xFF16] = 0x3F;
-			memory.memory[0xFF17] = 0x00;
-			memory.memory[0xFF19] = 0xBF;
-			memory.memory[0xFF1A] = 0x7F;
-			memory.memory[0xFF1B] = 0xFF;
-			memory.memory[0xFF1C] = 0x9F;
-			memory.memory[0xFF1E] = 0xBF;
-			memory.memory[0xFF20] = 0xFF;
-			memory.memory[0xFF21] = 0x00;
-			memory.memory[0xFF22] = 0x00;
-			memory.memory[0xFF23] = 0xBF;
-			memory.memory[0xFF24] = 0x77;
-			memory.memory[0xFF25] = 0xF3;
-			memory.memory[0xFF26] = 0xF1;
-			memory.memory[0xFF40] = 0x91;
-			memory.memory[0xFF42] = 0x00;
-			memory.memory[0xFF43] = 0x00;
-			memory.memory[0xFF44] = 0x90;
-			memory.memory[0xFF45] = 0x00;
-			memory.memory[0xFF47] = 0xFC;
-			memory.memory[0xFF48] = 0xFF;
-			memory.memory[0xFF49] = 0xFF;
-			memory.memory[0xFF4A] = 0x00;
-			memory.memory[0xFF4B] = 0x00;
-			memory.memory[0xFFFF] = 0x00;
+		memory.Reset();
 
-			memory.memory[0xff30] = 0x84;
-			memory.memory[0xff31] = 0x40;
-			memory.memory[0xff32] = 0x43;
-			memory.memory[0xff33] = 0xaa;
-			memory.memory[0xff34] = 0x2d;
-			memory.memory[0xff35] = 0x78;
-			memory.memory[0xff36] = 0x92;
-			memory.memory[0xff37] = 0x3c;
-			memory.memory[0xff38] = 0x60;
-			memory.memory[0xff39] = 0x59;
-			memory.memory[0xff3a] = 0x59;
-			memory.memory[0xff3b] = 0xb0;
-			memory.memory[0xff3c] = 0x34;
-			memory.memory[0xff3d] = 0xb8;
-			memory.memory[0xff3e] = 0x2e;
-			memory.memory[0xff3f] = 0xda;
-		}
+		if (withBootRom)
+			memory.LoadBootRom();
 
 		running = true;
 		divCycle = 0;
@@ -103,10 +54,10 @@ namespace emu
 		running = !running;
 	}
 
-	void CPU::LoadAndStart(const char* file)
+	void CPU::LoadAndStart(const char* file, bool withBootRom)
 	{
 		LoadRom(file);
-		Reset();
+		Reset(withBootRom);
 	}
 
 	void CPU::Update()

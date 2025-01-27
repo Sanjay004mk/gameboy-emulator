@@ -103,6 +103,12 @@ namespace emu
 							RDR_LOG_INFO("Emulation is {}", cpu->isRunning() ? "Running" : "Paused");
 							break;
 
+							// reset emulation
+						case rdr::Key::R:
+							cpu->Reset(!window->IsKeyDown(rdr::Key::LeftShift));
+							RDR_LOG_INFO("Emulation Reset");
+							break;
+
 							// fullscreen toggle
 						case rdr::Key::F11:
 							RDR_LOG_INFO("Fullscreen: {}", !window->GetConfig().fullscreen);
@@ -126,9 +132,13 @@ namespace emu
 				ts = end - start;
 				start = end;
 
-				rdr::Renderer::BeginFrame(window, {1, 1, 1, 1});
+				rdr::Renderer::BeginFrame(window, {0.1, 0.1, 0.1, 1});
 
-				ImGuiBasicUI();
+				if (!window->GetConfig().minimized)
+				{
+					ImGuiBasicUI();
+					mAppInfo.GetCurrentEmulator().OnImGuiUpdate();
+				}
 
 				mAppInfo.GetCurrentEmulator().Step(ts);
 
@@ -189,6 +199,11 @@ namespace emu
 				if (ImGui::MenuItem("Open Rom", "Ctrl+O"))
 				{
 					utils::open_rom(mAppInfo.window, mAppInfo.cpu);
+				}
+				if (ImGui::MenuItem("Open Rom without Boot", "Ctrl+Shift+O"))
+				{
+					utils::open_rom(mAppInfo.window, mAppInfo.cpu);
+					mAppInfo.cpu->Reset(false);
 				}
 				// TODO : save states, reload, etc.
 				ImGui::EndPopup();
@@ -276,6 +291,16 @@ namespace emu
 
 	void Emulator::Step(float ts)
 	{
+		if ((timeSinceLastUpdate += ts) >= (defaultSpeed / emulationSpeed))
+		{
+			timeSinceLastUpdate = 0.f;
+			mCpu->Update();
+		}
+
+	}
+
+	void Emulator::OnImGuiUpdate()
+	{
 		ImGuiWindowFlags window_flags = ImGuiWindowFlags_None;
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -304,13 +329,6 @@ namespace emu
 		ImGui::Image(mCpu->GetDisplayTexture()->GetImGuiID(), size);
 
 		ImGui::End();
-
-		if ((timeSinceLastUpdate += ts) >= (defaultSpeed / emulationSpeed))
-		{
-			timeSinceLastUpdate = 0.f;
-			mCpu->Update();
-		}
-
 	}
 
 	void Emulator::ImGuiSetupDockspace()
@@ -352,6 +370,9 @@ namespace emu
 
 			if (ImGui::MenuItem("Resume", "Ctrl + P"))
 				mCpu->Resume();
+
+			if (ImGui::MenuItem("Reset", "Ctrl + R"))
+				mCpu->Reset();
 
 			for (float i = 0.5f; i <= 5.f; i += 0.5f)
 			{
@@ -401,8 +422,6 @@ namespace emu
 
 	void Debugger::Step(float ts)
 	{
-		OnImGuiUpdate();
-
 		switch (emulationMode)
 		{
 		case Mode::Run:
@@ -451,6 +470,25 @@ namespace emu
 		return false;
 	}
 
+	void Debugger::UpdateMemoryView()
+	{
+		memoryDisplay.clear();
+		std::stringstream ss;
+		std::string line;
+
+		for (uint32_t i = 0; i < 0x1000; i++)
+		{
+			ss << std::hex << std::setw(3) << std::setfill('0') << i << "0 : ";
+			for (uint32_t j = 0; j < 0x10; j++)
+				ss << std::hex << std::setw(2) << std::setfill('0') << ((uint32_t)mCpu->memory.memory[(i * 0x10)+ j]) << " ";
+			ss << std::endl;
+
+			std::getline(ss, line);
+			memoryDisplay.push_back(line);
+		}
+
+	}
+
 	void Debugger::OnImGuiUpdate()
 	{
 		// Instruction window
@@ -467,7 +505,7 @@ namespace emu
 					lines << "> ";
 
 				lines << "0x" << std::hex << i << " (" << std::dec << i << ") : ";
-				lines << "0x" << std::hex << (uint32_t)mCpu->memory[i] << std::endl;
+				lines << "0x" << std::hex << ((uint32_t)mCpu->memory.memory[i]) << "\n";
 			}
 
 			std::string line;
@@ -507,20 +545,22 @@ namespace emu
 
 			ImVec2 size = ImGui::GetContentRegionAvail();
 			if (size.x > size.y)
-				size.x /= 3.f;
+				size.y = size.x /= 2.f;
 			else
-				size.y /= 3.f;
+				size.x = size.y /= 2.f;
 			
 			rdr::Texture* textures[] = {
 				mCpu->ppu.bg.texture,
 				mCpu->ppu.window.texture,
-				mCpu->ppu.sprite.texture
+				mCpu->ppu.sprite.texture,
+				mCpu->ppu.tiles.texture
 			};
-			
+			uint32_t count = 1;
 			for (auto& t : textures)
 			{
 				ImGui::Image(t->GetImGuiID(), size);
-				ImGui::SameLine();
+				if (count++ % 2)
+					ImGui::SameLine();
 			}
 			
 			ImGui::End();
@@ -616,25 +656,11 @@ namespace emu
 		{
 			ImGui::Begin("Memory");
 
-			/*if (memoryDisplay.size() == 0)
-			{
-				std::stringstream ss;
-
-				for (uint32_t i = 0; i <= 0xfff; i++)
-				{
-					ss << std::hex << std::setw(3) << std::setfill('0') << i << "0 : ";
-					for (uint32_t j = 0; j < 0xf; j++)
-						ss << std::hex << std::setw(2) << std::setfill('0') << (uint32_t)mCpu->memory[i + j] << " ";
-					ss << std::endl;
-				}
-
-				std::string line;
-				while (std::getline(ss, line))
-					memoryDisplay.push_back(line);
-			}
+			if (ImGui::Button("Update Memory"))
+				UpdateMemoryView();
 
 			for (auto& line : memoryDisplay)
-				ImGui::Text(line.c_str());*/
+				ImGui::Text(line.c_str());
 
 			ImGui::End();
 		}

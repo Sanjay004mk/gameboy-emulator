@@ -21,6 +21,8 @@ namespace emu
 		virtual void OnDetach() {}
 		virtual void OnAttach() {}
 
+		virtual void OnImGuiUpdate();
+
 		virtual void ImGuiSetupDockspace();
 		virtual void ImGuiMenuBarOptions();
 		virtual void ImGuiFooterOptions(const glm::vec2& region);
@@ -68,10 +70,12 @@ namespace emu
 		bool OnKeyPressed(rdr::KeyPressedEvent& e) override;
 
 	private:
-		void OnImGuiUpdate();
+		void OnImGuiUpdate() override;
 		void ImGuiSetupDockspace() override;
 		void ImGuiMenuBarOptions() override;
 		void ImGuiFooterOptions(const glm::vec2& region) override;
+
+		void UpdateMemoryView();
 
 		void OnAttach() override { mCpu->ppu.SetDebugMode(true); }
 		void OnDetach() override { mCpu->ppu.SetDebugMode(false); }

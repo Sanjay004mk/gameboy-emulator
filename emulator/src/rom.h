@@ -36,6 +36,7 @@ namespace emu
 		bool romSelect = true;
 
 		void Init(const char* file);
+		void Reset();
 
 		// write
 		template <typename Integer>

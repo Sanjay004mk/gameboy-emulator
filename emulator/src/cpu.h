@@ -83,8 +83,8 @@ namespace emu
 		void Resume();
 		void Toggle();
 		bool isRunning() { return running; }
-		void Reset();
-		void LoadAndStart(const char* file);
+		void Reset(bool withBootRom = true);
+		void LoadAndStart(const char* file, bool withBootRom = true);
 
 		std::string SerialOut();
 
