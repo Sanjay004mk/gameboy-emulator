@@ -17,8 +17,8 @@ namespace utils
 	uint32_t GetColorIndexFromTileRow(uint16_t tile, uint32_t x)
 	{
 		uint32_t index = 0;
-		index = ((tile << (x % 8)) & (0x0100)) ? 0x1 : 0x0;
-		index |= ((tile << (x % 8)) & (0x0001)) ? 0x2 : 0x0;
+		index = ((tile << (x % 8)) & (0x8000)) ? 0x1 : 0x0;
+		index |= ((tile << (x % 8)) & (0x0080)) ? 0x2 : 0x0;
 
 		return index;
 	}
@@ -199,7 +199,7 @@ namespace emu
 
 		for (uint32_t i = 0x8000, x = 0, y = 0; i < 0x9800; i += 0x10, x += 8)
 		{
-			if (x == 256)
+			if (x == 128)
 			{
 				x = 0;
 				y += 8;
@@ -209,7 +209,11 @@ namespace emu
 				uint16_t tile = memory.As<uint16_t>(i + (j * 2));
 
 				for (int k = 0; k < 8; k++)
-					tiles.cpuBuffer[(y + j) * 256 + x + k] = color_palette[utils::GetColorIndexFromTileRow(tile, k)];
+				{
+					uint32_t index = utils::GetColorIndexFromTileRow(tile, k);
+					index = (memory[0xff47] >> (index * 2)) & 3;
+					tiles.cpuBuffer[(y + j) * 256 + x + k] = color_palette[index];
+				}
 			}
 		}
 
@@ -253,7 +257,9 @@ namespace emu
 		index |= ((tileData << (x % 8)) & (0x0080)) ? 0x2 : 0x0;
 
 		// index from color palette
-		index = (spritePalette >> (index * 2)) & 3;
+		if (index)
+			index = (spritePalette >> (index * 2)) & 3;
+
 		return index;
 	}
 
@@ -336,22 +342,29 @@ namespace emu
 
 			uint32_t palette = flags & (1 << 4) ? memory[0xff49] : memory[0xff48];
 
-			if (row < y || row > (y + height))
+			if (row < y || row >= (y + height) || x >= 160 || y >= 144)
 				continue;
 
 			if (yflip)
 			{
 				uint32_t ymax = y + height - 1;
-				y += (ymax - row);
+				y = ymax - row;
 			}
 			else
-				y = row;
+				y = row - y;
+
+			if (y > 7)
+			{
+				y -= 8;
+				tileNumber++;
+			}
 
 			for (uint32_t i = 0; i < 8; i++)
 			{
-				uint32_t index = GetSpritePixelFromTile(tileNumber, xflip ? x + (7 - i) : x + i, y, palette);
-
-				sprite.cpuBuffer[row * 256 + x + i] = color_palette[index];
+				uint32_t index = GetSpritePixelFromTile(tileNumber, xflip ? (7 - i) : i, y, palette);
+				
+				if (index)
+					sprite.cpuBuffer[row * 256 + x + i] = color_palette[index];
 			}
 		}
 	}

@@ -2,8 +2,23 @@
 
 namespace emu
 {
-	struct ROM
+	enum Input
 	{
+		Input_Button_A = 0,
+		Input_Button_B,
+		Input_Button_Select,
+		Input_Button_Start,
+		Input_Button_Right,
+		Input_Button_Left,
+		Input_Button_Up,
+		Input_Button_Down
+	};
+
+	struct Memory
+	{
+		Memory(std::function<bool(Input)> getInputState) : getInputState(getInputState) {}
+		~Memory();
+
 		struct ExternalRam
 		{
 			std::vector<uint8_t> ram;
@@ -15,24 +30,14 @@ namespace emu
 
 		enum class BankingType { MBC0, MBC1, MBC2, MBC3, MBC5 };
 
-		std::vector<uint8_t> data;
-
+		std::function<bool(Input)> getInputState;
 		BankingType bankType = BankingType::MBC0;
 		size_t romBankOffset = 0x4000;
-		ExternalRam ram;
+		ExternalRam cartrigeRam;
 
-		ROM(const char* file);
-		ROM(const void* data, uint64_t size);
-		~ROM();
-
-		void Init();
-
-	};
-
-	struct Memory
-	{
 		uint8_t memory[std::numeric_limits<uint16_t>::max() + 1] = {};
-		std::shared_ptr<ROM> rom;
+		uint8_t* rom = nullptr;
+
 		bool romSelect = true;
 
 		void Init(const char* file);
@@ -50,43 +55,50 @@ namespace emu
 			{
 				memory[i] = value;
 				uint32_t start = value * 0x100;
-				memcpy_s(memory + 0xfe00, 160, memory + value, 160);
+				memcpy_s(memory + 0xfe00, 160, memory + start, 160);
 			}
 
-			if (rom->bankType == ROM::BankingType::MBC0)
+			// Set Joypad Register
+			if (i == 0xff00)
+			{
+				memory[i] = value;
+				SetInputState();
+			}
+
+			if (bankType == BankingType::MBC0)
 			{
 				if (i >= 0x8000)
 					memory[i] = value;
 			}
-			else if (rom->bankType == ROM::BankingType::MBC1)
+			else if (bankType == BankingType::MBC1)
 			{
 				if (i < 0x2000)
-					rom->ram.enabled = value;
+					cartrigeRam.enabled = value;
 				else if (i < 0x4000)
 				{
 					if (value == 0x20 || value == 0x60 || value == 0x40 || value == 0x0)
 						value += 1;
 
-					rom->romBankOffset = 0x4000ull * value;
+					romBankOffset = 0x4000ull * value;
 				}
 				else if (i < 0x6000)
 				{
 					if (romSelect)
-						rom->romBankOffset = 0x4000ull * ((value & 0x3ull) << 5);
+						romBankOffset = 0x4000ull * ((value & 0x3ull) << 5);
 					else
-						rom->ram.offset = 0x2000ull * (value & 3);
+						cartrigeRam.offset = 0x2000ull * (value & 3);
 				}
 				else if (i < 0x8000)
 					romSelect = !value;
-				else if (i >= 0xa000 && i < 0xc000 && rom->ram.enabled)
+				else if (i >= 0xa000 && i < 0xc000 && cartrigeRam.enabled)
 				{
-					if ((size_t)(i - 0xa000) < rom->ram.size)
-						memory[i] = rom->ram.ram[i - 0xa000] = value;
+					if ((size_t)(i - 0xa000) < cartrigeRam.size)
+						memory[i] = cartrigeRam.ram[i - 0xa000] = value;
 				}
 				else
 					memory[i] = value;
 			}
-			else if (rom->bankType == ROM::BankingType::MBC2)
+			else if (bankType == BankingType::MBC2)
 			{
 				// TODO : implement mbc 2, 3 and 5
 				RDR_ASSERT_NO_MSG_BREAK(false);
@@ -99,20 +111,20 @@ namespace emu
 		template <typename Integer>
 		const uint8_t& operator[](Integer i) const
 		{
-			if (rom->bankType == ROM::BankingType::MBC1)
+			if (bankType == BankingType::MBC1)
 			{
 				if (i >= 0x4000 && i < 0x8000)
-					return rom->data[rom->romBankOffset + (i - 0x4000)];
+					return rom[romBankOffset + (i - 0x4000)];
 
-				if (i >= 0xa000 && i < 0xc000 && rom->ram.enabled)
-					if ((size_t)(i - 0xa000) < rom->ram.size)
-						return rom->ram.ram[i - 0xa000];
+				if (i >= 0xa000 && i < 0xc000 && cartrigeRam.enabled)
+					if ((size_t)(i - 0xa000) < cartrigeRam.size)
+						return cartrigeRam.ram[i - 0xa000];
 			}
-			else if (rom->bankType == ROM::BankingType::MBC2)
+			else if (bankType == BankingType::MBC2)
 			{
 
 			}
-			else if (rom->bankType == ROM::BankingType::MBC3)
+			else if (bankType == BankingType::MBC3)
 			{
 
 			}
@@ -139,6 +151,7 @@ namespace emu
 
 		void LoadBootRom();
 		void LockBootRom();
+		void SetInputState();
 	};
 
 }

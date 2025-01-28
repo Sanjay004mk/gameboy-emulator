@@ -50,6 +50,29 @@ namespace utils
 		ImGui::PopStyleVar(3);
 
 	}
+
+	template <typename T>
+	void imgui_uint_setter(T* value, char buf[], const char* name)
+	{
+		static constexpr const char* pat = sizeof(T) == 1 ? "%02x" : "%04x";
+		sprintf_s(buf, sizeof(buf), pat, *(value));
+		if (ImGui::InputText(name, buf, sizeof(buf), ImGuiInputTextFlags_CharsHexadecimal))
+		{
+			// fill trailing digits with zeroes instead of making the value smaller
+			// to avoid register interchage
+			for (int i = 0; i < sizeof(T) * 2; i++)
+				if (!buf[i])
+					buf[i] = '0';
+
+			uint32_t regval = std::stoul(buf, 0, 16);
+			static constexpr uint32_t max_val = sizeof(T) == 1 ? 0xff : 0xffff;
+			if (regval <= max_val)
+				*(value) = (T)(regval);
+		}
+	}
+
+	static constexpr auto imgui_uint8_t_setter = imgui_uint_setter<uint8_t>;
+	static constexpr auto imgui_uint16_t_setter = imgui_uint_setter<uint16_t>;
 }
 
 namespace emu
@@ -116,6 +139,82 @@ namespace emu
 							break;
 
 						}
+					}
+					else
+					{
+						switch (e.GetKeyCode())
+						{
+						case rdr::Key::Up:
+							cpu->InputPressed(Input_Button_Up);
+							break;
+
+						case rdr::Key::Down:
+							cpu->InputPressed(Input_Button_Down);
+							break;
+
+						case rdr::Key::Left:
+							cpu->InputPressed(Input_Button_Left);
+							break;
+
+						case rdr::Key::Right:
+							cpu->InputPressed(Input_Button_Right);
+							break;
+
+						case rdr::Key::A:
+							cpu->InputPressed(Input_Button_A);
+							break;
+
+						case rdr::Key::B:
+							cpu->InputPressed(Input_Button_B);
+							break;
+
+						case rdr::Key::S:
+							cpu->InputPressed(Input_Button_Select);
+							break;
+
+						case rdr::Key::T:
+							cpu->InputPressed(Input_Button_Start);
+							break;
+						}
+					}
+					
+				});
+
+			window->RegisterCallback<rdr::KeyReleasedEvent>([&](rdr::KeyReleasedEvent& e)
+				{
+					switch (e.GetKeyCode())
+					{
+					case rdr::Key::Up:
+						cpu->InputReleased(Input_Button_Up);
+						break;
+
+					case rdr::Key::Down:
+						cpu->InputReleased(Input_Button_Down);
+						break;
+
+					case rdr::Key::Left:
+						cpu->InputReleased(Input_Button_Left);
+						break;
+
+					case rdr::Key::Right:
+						cpu->InputReleased(Input_Button_Right);
+						break;
+
+					case rdr::Key::A:
+						cpu->InputReleased(Input_Button_A);
+						break;
+
+					case rdr::Key::B:
+						cpu->InputReleased(Input_Button_B);
+						break;
+
+					case rdr::Key::S:
+						cpu->InputReleased(Input_Button_Select);
+						break;
+
+					case rdr::Key::T:
+						cpu->InputReleased(Input_Button_Start);
+						break;
 					}
 				});
 
@@ -577,7 +676,6 @@ namespace emu
 			struct RegInfo
 			{
 				uint16_t* reg = nullptr;
-				bool pad = true;
 				char buf[18] = { };
 			};
 
@@ -591,21 +689,7 @@ namespace emu
 			};
 
 			for (auto& [reg, name] : registers)
-			{
-				sprintf_s(reg.buf, "%04x", *(reg.reg));
-				if (ImGui::InputText(name, reg.buf, sizeof(reg.buf), ImGuiInputTextFlags_CharsHexadecimal))
-				{
-					// fill trailing digits with zeroes instead of making the value smaller
-					// to avoid register interchage
-					for (int i = 0; i < 4; i++)
-						if (!reg.buf[i])
-							reg.buf[i] = '0';
-
-					uint32_t regval = std::stoul(reg.buf, 0, 16);
-					if (regval <= 0xffff)
-						*(reg.reg) = (uint16_t)(regval);
-				}
-			}
+				utils::imgui_uint16_t_setter(reg.reg, reg.buf, name);
 
 			ImGui::Separator();
 
@@ -647,7 +731,16 @@ namespace emu
 
 			ImGui::Separator();
 
+			std::tuple<uint8_t*, const char*, std::array<char, 16>> memreg[] = {
+				{mCpu->memory.memory + 0xff40, "LCD Control", {}},
+				{mCpu->memory.memory + 0xff41, "LCD Status", {}},
+				{mCpu->memory.memory + 0xff44, "LY", {}},
+				{mCpu->memory.memory + 0xffff, "Interrupt Enable", {}},
+				{mCpu->memory.memory + 0xff0f, "Interrupt Flag", {}},
+			};
 
+			for (auto& [reg, name, buf] : memreg)
+				utils::imgui_uint8_t_setter(reg, buf.data(), name);
 
 			ImGui::End();
 		}

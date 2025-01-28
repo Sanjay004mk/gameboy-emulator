@@ -86,6 +86,10 @@ namespace emu
 		void Reset(bool withBootRom = true);
 		void LoadAndStart(const char* file, bool withBootRom = true);
 
+		void InputPressed(Input ip);
+		void InputReleased(Input ip);
+		bool GetInputState(Input ip);
+
 		std::string SerialOut();
 
 	private:
@@ -858,7 +862,7 @@ namespace emu
 			return 16;
 		}
 
-		Memory memory = {};
+		Memory memory;
 		Register AF = { 0x01b0 };
 		Register BC = { 0x0013 };
 		Register DE = { 0x00d8 };
@@ -874,6 +878,8 @@ namespace emu
 		uint32_t divCycle = 0, timerCycles = 0;
 		std::string serialData;
 		bool serialPresent = false;
+
+		uint32_t inputState = 0;
 
 		friend class Debugger;
 	};

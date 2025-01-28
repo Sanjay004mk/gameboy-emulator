@@ -29,33 +29,30 @@ namespace emu
 		0x3E, 0x01, 0xE0, 0x50
 	};
 
-	ROM::ROM(const char* file)
+	Memory::~Memory()
 	{
+		if (rom)
+			delete[] rom;
+	}
+
+	void Memory::Init(const char* file)
+	{
+		if (rom)
+			delete[] rom;
+
 		RDR_ASSERT_MSG_BREAK(std::filesystem::exists(file), "Rom file doesn't exist: {}", file);
-			
+
 		std::ifstream romfile(file, std::ios::binary | std::ios::in);
 
 		size_t size = std::filesystem::file_size(file);
 		RDR_ASSERT_MSG_BREAK(size >= 0x8000, "Rom size too small. Check if the rom is correct");
 
-		data.resize(size);
+		rom = new uint8_t[size];
 
-		romfile.read((char*)data.data(), data.size());
+		romfile.read((char*)rom, size);
 
-		Init();
-	}
-
-	ROM::ROM(const void* data, uint64_t size)
-	{
-		this->data = std::vector<uint8_t>((const uint8_t*)data, (const uint8_t*)data + size);
-
-		Init();
-	}
-
-	void ROM::Init()
-	{
 		// memory banking type
-		uint32_t type = data[0x147];
+		uint32_t type = rom[0x147];
 		if ((type & 3) && !(type & ~3))
 			bankType = BankingType::MBC1;
 		else if (type == 5 || type == 6)
@@ -66,28 +63,18 @@ namespace emu
 			bankType = BankingType::MBC5;
 
 		// external ram
-		type = data[0x149];
+		type = rom[0x149];
 		static uint32_t nbanks[] = { 1, 1, 4, 16, 8 };
 		static uint32_t nbanksize[] = { 0x800, 0x2000, 0x8000, 0x20000, 0x10000 };
 		if (type && type <= 5)
 		{
-			ram.numRams = nbanks[type - 1];
-			ram.size = type == 1 ? 0x800 : 0x2000;
-			ram.ram = std::vector<uint8_t>(nbanksize[type - 1]);
+			cartrigeRam.numRams = nbanks[type - 1];
+			cartrigeRam.size = type == 1 ? 0x800 : 0x2000;
+			cartrigeRam.ram = std::vector<uint8_t>(nbanksize[type - 1]);
 		}
 
-	}
-
-	ROM::~ROM()
-	{
-
-	}
-
-	void Memory::Init(const char* file)
-	{
-		rom = std::make_shared<ROM>(file);
 		memset(memory, 0, sizeof(memory));
-		memcpy_s(memory, 0x8000ull, rom->data.data(), 0x8000ull);
+		memcpy_s(memory, 0x8000ull, rom, 0x8000ull);
 	}
 
 	void Memory::Reset()
@@ -95,7 +82,9 @@ namespace emu
 		memset(memory, 0, sizeof(memory));
 
 		if (rom)
-			memcpy_s(memory, 0x8000ull, rom->data.data(), 0x8000ull);
+			memcpy_s(memory, 0x8000ull, rom, 0x8000ull);
+
+		memory[0xff00] = 0xff;
 
 		memory[0xFF05] = 0x00;
 		memory[0xFF06] = 0x00;
@@ -155,6 +144,38 @@ namespace emu
 
 	void Memory::LockBootRom()
 	{
-		memcpy_s(memory, 256, rom->data.data(), 256);
+		memcpy_s(memory, 256, rom, 256);
+	}
+
+	void Memory::SetInputState()
+	{
+		uint8_t& ipReg = memory[0xff00];
+
+		bool dirEnable = !(ipReg & (1 << 4));
+		bool buttonEnable = !(ipReg & (1 << 5));
+
+		uint32_t index = buttonEnable ? 0 : 4;
+		bool interrupt = false;
+
+		if (buttonEnable || dirEnable)
+		{
+			for (uint32_t i = 0; i < 4; i++)
+			{
+				if (getInputState((Input)(index + i)))
+				{
+					uint8_t temp = ipReg & ~(1 << i);
+					if (temp != ipReg)
+						interrupt = true;
+
+					ipReg = temp;
+				}
+				else
+					ipReg |= (1 << i);
+			}
+
+		}
+
+		if (interrupt)
+			memory[0xff0f] |= 0x10;
 	}
 }

@@ -6,7 +6,7 @@
 namespace emu
 {
 	CPU::CPU()
-		: flags(AF.lo), ppu(memory)
+		: flags(AF.lo), memory([this](Input ip) { return this->GetInputState(ip); }), ppu(memory)
 	{
 	}
 
@@ -183,6 +183,21 @@ namespace emu
 				timerCycles -= freq;
 			}
 		}
+	}
+
+	void CPU::InputPressed(Input ip)
+	{
+		inputState |= (1 << ip);
+	}
+
+	void CPU::InputReleased(Input ip)
+	{
+		inputState &= ~(1 << ip);
+	}
+
+	bool CPU::GetInputState(Input ip)
+	{
+		return (bool)(inputState & (1 << ip));
 	}
 
 	std::string CPU::SerialOut()
