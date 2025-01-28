@@ -147,14 +147,14 @@ namespace emu
 		memcpy_s(memory, 256, rom, 256);
 	}
 
-	void Memory::SetInputState()
+	uint8_t Memory::SetInputState(uint8_t value)
 	{
-		uint8_t& ipReg = memory[0xff00];
+		uint8_t joypad = 0x0f;
 
-		bool dirEnable = !(ipReg & (1 << 4));
-		bool buttonEnable = !(ipReg & (1 << 5));
+		bool dirEnable = (value & (1 << 4));
+		bool buttonEnable = (value & (1 << 5));
 
-		uint32_t index = buttonEnable ? 0 : 4;
+		uint32_t index = buttonEnable ? 4 : 0;
 		bool interrupt = false;
 
 		if (buttonEnable || dirEnable)
@@ -163,19 +163,24 @@ namespace emu
 			{
 				if (getInputState((Input)(index + i)))
 				{
-					uint8_t temp = ipReg & ~(1 << i);
-					if (temp != ipReg)
+					uint8_t temp = joypad & ~(1 << i);
+					if (temp != joypad)
 						interrupt = true;
 
-					ipReg = temp;
+					joypad = temp;
 				}
 				else
-					ipReg |= (1 << i);
+					joypad |= (1 << i);
 			}
 
 		}
 
 		if (interrupt)
 			memory[0xff0f] |= 0x10;
+
+		value &= 0xf0;
+		value |= 0xc0;
+
+		return (value | joypad);
 	}
 }

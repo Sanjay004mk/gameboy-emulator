@@ -53,17 +53,13 @@ namespace emu
 			// OAM transfer
 			if (i == 0xff46)
 			{
-				memory[i] = value;
 				uint32_t start = value * 0x100;
 				memcpy_s(memory + 0xfe00, 160, memory + start, 160);
 			}
 
 			// Set Joypad Register
 			if (i == 0xff00)
-			{
-				memory[i] = value;
-				SetInputState();
-			}
+				return memory[i] = SetInputState(value);
 
 			if (bankType == BankingType::MBC0)
 			{
@@ -151,7 +147,7 @@ namespace emu
 
 		void LoadBootRom();
 		void LockBootRom();
-		void SetInputState();
+		uint8_t SetInputState(uint8_t value);
 	};
 
 }

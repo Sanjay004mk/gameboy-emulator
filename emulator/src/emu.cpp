@@ -164,7 +164,7 @@ namespace emu
 							cpu->InputPressed(Input_Button_A);
 							break;
 
-						case rdr::Key::B:
+						case rdr::Key::Z:
 							cpu->InputPressed(Input_Button_B);
 							break;
 
@@ -172,7 +172,7 @@ namespace emu
 							cpu->InputPressed(Input_Button_Select);
 							break;
 
-						case rdr::Key::T:
+						case rdr::Key::X:
 							cpu->InputPressed(Input_Button_Start);
 							break;
 						}
@@ -204,7 +204,7 @@ namespace emu
 						cpu->InputReleased(Input_Button_A);
 						break;
 
-					case rdr::Key::B:
+					case rdr::Key::Z:
 						cpu->InputReleased(Input_Button_B);
 						break;
 
@@ -212,7 +212,7 @@ namespace emu
 						cpu->InputReleased(Input_Button_Select);
 						break;
 
-					case rdr::Key::T:
+					case rdr::Key::X:
 						cpu->InputReleased(Input_Button_Start);
 						break;
 					}

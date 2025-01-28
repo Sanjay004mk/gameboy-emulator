@@ -42,6 +42,9 @@ namespace emu
 		running = true;
 		divCycle = 0;
 		timerCycles = 0;
+
+		flags.ime = false;
+		flags.halt = false;
 	}
 
 	void CPU::Resume()
