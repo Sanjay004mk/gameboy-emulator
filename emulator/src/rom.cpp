@@ -40,6 +40,7 @@ namespace emu
 		if (rom)
 			delete[] rom;
 
+		romFileName = file;
 		RDR_ASSERT_MSG_BREAK(std::filesystem::exists(file), "Rom file doesn't exist: {}", file);
 
 		std::ifstream romfile(file, std::ios::binary | std::ios::in);
@@ -64,13 +65,25 @@ namespace emu
 
 		// external ram
 		type = rom[0x149];
-		static uint32_t nbanks[] = { 1, 1, 4, 16, 8 };
-		static uint32_t nbanksize[] = { 0x800, 0x2000, 0x8000, 0x20000, 0x10000 };
-		if (type && type <= 5)
+		static uint32_t nbanks[] = { 1, 1, 1, 4, 16, 8 };
+		static uint32_t nbanksize[] = { 0x200, 0x800, 0x2000, 0x8000, 0x20000, 0x10000 };
+		if (type && type <= 5 || (type == 0 && bankType == BankingType::MBC2))
 		{
-			cartrigeRam.numRams = nbanks[type - 1];
-			cartrigeRam.size = type == 1 ? 0x800 : 0x2000;
-			cartrigeRam.ram = std::vector<uint8_t>(nbanksize[type - 1]);
+			saveFileName = romFileName;
+			saveFileName.replace_extension(".sav");
+
+			cartrigeRam.numRams = nbanks[type];
+			cartrigeRam.size = type == 1 ? 0x800 : type == 0 ? 0x200 : 0x2000;
+			cartrigeRam.ram = std::vector<uint8_t>(nbanksize[type]);
+
+			if (std::filesystem::exists(saveFileName))
+			{
+				std::ifstream saveFile(saveFileName, std::ios::binary);
+				size_t saveFileSize = std::filesystem::file_size(saveFileName);
+				RDR_ASSERT_MSG(saveFileSize == cartrigeRam.ram.size(), "Save file is incorrect or potentially corrupted");
+
+				saveFile.read((char*)cartrigeRam.ram.data(), saveFileSize);
+			}
 		}
 
 		memset(memory, 0, sizeof(memory));
@@ -137,6 +150,16 @@ namespace emu
 		memory[0xff3f] = 0xda;
 	}
 
+	void Memory::SaveRAM()
+	{
+		if (saveFileName.empty())
+			return;
+
+		std::ofstream saveFile(saveFileName, std::ios::binary);
+
+		saveFile.write((char*)cartrigeRam.ram.data(), cartrigeRam.ram.size());
+	}
+
 	void Memory::LoadBootRom()
 	{
 		memcpy_s(memory, 256, gameboyBootROM, 256);
@@ -155,32 +178,167 @@ namespace emu
 		bool buttonEnable = (value & (1 << 5));
 
 		uint32_t index = buttonEnable ? 4 : 0;
-		bool interrupt = false;
 
 		if (buttonEnable || dirEnable)
 		{
 			for (uint32_t i = 0; i < 4; i++)
 			{
 				if (getInputState((Input)(index + i)))
-				{
-					uint8_t temp = joypad & ~(1 << i);
-					if (temp != joypad)
-						interrupt = true;
-
-					joypad = temp;
-				}
-				else
-					joypad |= (1 << i);
+					joypad &= ~(1 << i);
 			}
-
 		}
 
-		if (interrupt)
-			memory[0xff0f] |= 0x10;
-
 		value &= 0xf0;
-		value |= 0xc0;
 
 		return (value | joypad);
+	}
+
+	void Memory::HandleWriteMBC(uint32_t address, uint8_t value)
+	{
+		if (address >= 0x8000)
+		{
+			switch (bankType)
+			{
+			case BankingType::MBC0:
+				memory[address] = value;
+				break;
+
+			case BankingType::MBC1:
+			case BankingType::MBC2:
+			case BankingType::MBC3:
+			case BankingType::MBC5:
+				memory[address] = value;
+				if (address >= 0xa000 && address < 0xc000 && cartrigeRam.enabled)
+				{
+					if (bankType == BankingType::MBC3 && rtc.enabled)
+					{
+						if (!rtc.latched)
+							rtc.data.e[rtc.selected] = value;
+					}
+					else if (((size_t)address - 0xa000) < cartrigeRam.size)
+					{
+						if (bankType == BankingType::MBC2)
+							value &= 0x0f;
+						cartrigeRam.ram[address - 0xa000] = value;
+						SaveRAM();
+					}
+				}
+				break;
+			}
+		}
+
+		if (bankType == BankingType::MBC0)
+			return;
+
+		if (address < 0x2000)
+		{
+			switch (bankType)
+			{
+			case BankingType::MBC2:
+				if ((0x0100 & address))
+					break;
+				[[fallthrough]];
+
+			case BankingType::MBC1:
+			case BankingType::MBC3:
+			case BankingType::MBC5:
+				cartrigeRam.enabled = value;
+				break;
+			}
+		}
+		else if (address < 0x4000)
+		{
+			switch (bankType)
+			{
+			case BankingType::MBC2:
+				if (!(0x0100 & address))
+					break;
+
+				value &= 0x0f;
+				[[fallthrough]];
+
+			case BankingType::MBC1:
+				if (value == 0x20 || value == 0x60 || value == 0x40)
+					value += 1;
+				[[fallthrough]];
+
+			case BankingType::MBC3:
+				if (value == 0x0)
+					value += 1;
+				
+				romBankOffset = 0x4000ull * value;
+				break;
+
+			case BankingType::MBC5:
+				uint16_t mask = address < 0x3000 ? 0xff00 : 0x00ff;
+				mbc5RomBankNumber &= mask;
+				mbc5RomBankNumber |= mask == 0xff00 ? value : value << 8;
+				romBankOffset = 0x4000ull * mbc5RomBankNumber;
+				break;
+			}
+		}
+		else if (address < 0x6000)
+		{
+			switch (bankType)
+			{
+			case BankingType::MBC1:
+				if (romSelect)
+					romBankOffset = 0x4000ull * ((value & 0x60ull));
+				else
+					cartrigeRam.offset = 0x2000ull * (value & 3);
+				break;
+
+			case BankingType::MBC3:
+				if (value >= 0x8)
+				{
+					rtc.enabled = true;
+					rtc.selected = (value & 0x0f) - 8;
+					break;
+				}
+				else
+					rtc.enabled = false;
+				[[fallthrough]];
+
+			case BankingType::MBC5:
+				cartrigeRam.offset = 0x2000ull * (value & 0x0f);
+				break;
+			}
+		}
+		else if (address < 0x8000)
+		{
+			switch (bankType)
+			{
+			case emu::Memory::BankingType::MBC1:
+				romSelect = !value;
+				break;
+			case emu::Memory::BankingType::MBC3:
+				if (rtc.latchingStarted && value == 0x1)
+				{
+					rtc.latchingStarted = false;
+					rtc.latched = !rtc.latched;
+				}
+				else if (value == 0x0)
+					rtc.latchingStarted = true;
+				break;
+			}
+		}
+	}
+
+	const uint8_t& Memory::HandleReadMBC(uint32_t address) const
+	{
+		if (bankType == BankingType::MBC0)
+			return memory[address];
+
+		if (address >= 0x4000 && address < 0x8000)
+			return rom[romBankOffset + (address - 0x4000)];
+		else if (address >= 0xa000 && address < 0xc000 && cartrigeRam.enabled)
+		{
+			if (bankType == BankingType::MBC3 && rtc.enabled)
+				return rtc.data.e[rtc.selected];
+			else if ((size_t)(address - 0xa000) < cartrigeRam.size)
+				return cartrigeRam.ram[address - 0xa000];
+		}
+
+		return memory[address];
 	}
 }

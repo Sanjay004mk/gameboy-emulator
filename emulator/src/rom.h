@@ -28,15 +28,32 @@ namespace emu
 			bool enabled = false;
 		};
 
+		struct RTCRegister
+		{
+			union
+			{
+				uint8_t s, m, h, dl, dh;
+				uint8_t e[5];
+			} data = {};
+			uint32_t selected = 0;
+			bool enabled = false;
+			bool latched = false;
+			bool latchingStarted = false;
+		};
+
+		ExternalRam cartrigeRam;
+		RTCRegister rtc;
+
 		enum class BankingType { MBC0, MBC1, MBC2, MBC3, MBC5 };
 
 		std::function<bool(Input)> getInputState;
 		BankingType bankType = BankingType::MBC0;
 		size_t romBankOffset = 0x4000;
-		ExternalRam cartrigeRam;
+		uint16_t mbc5RomBankNumber = 0;
 
 		uint8_t memory[std::numeric_limits<uint16_t>::max() + 1] = {};
 		uint8_t* rom = nullptr;
+		std::filesystem::path romFileName, saveFileName;
 
 		bool romSelect = true;
 
@@ -48,57 +65,25 @@ namespace emu
 		uint8_t operator()(Integer i, uint8_t value)
 		{
 			if (i == 0xff50 && value)
+			{
 				LockBootRom();
+				return memory[i] = value;
+			}
 
 			// OAM transfer
 			if (i == 0xff46)
 			{
 				uint32_t start = value * 0x100;
 				memcpy_s(memory + 0xfe00, 160, memory + start, 160);
+
+				return memory[i] = value;
 			}
 
 			// Set Joypad Register
 			if (i == 0xff00)
 				return memory[i] = SetInputState(value);
 
-			if (bankType == BankingType::MBC0)
-			{
-				if (i >= 0x8000)
-					memory[i] = value;
-			}
-			else if (bankType == BankingType::MBC1)
-			{
-				if (i < 0x2000)
-					cartrigeRam.enabled = value;
-				else if (i < 0x4000)
-				{
-					if (value == 0x20 || value == 0x60 || value == 0x40 || value == 0x0)
-						value += 1;
-
-					romBankOffset = 0x4000ull * value;
-				}
-				else if (i < 0x6000)
-				{
-					if (romSelect)
-						romBankOffset = 0x4000ull * ((value & 0x3ull) << 5);
-					else
-						cartrigeRam.offset = 0x2000ull * (value & 3);
-				}
-				else if (i < 0x8000)
-					romSelect = !value;
-				else if (i >= 0xa000 && i < 0xc000 && cartrigeRam.enabled)
-				{
-					if ((size_t)(i - 0xa000) < cartrigeRam.size)
-						memory[i] = cartrigeRam.ram[i - 0xa000] = value;
-				}
-				else
-					memory[i] = value;
-			}
-			else if (bankType == BankingType::MBC2)
-			{
-				// TODO : implement mbc 2, 3 and 5
-				RDR_ASSERT_NO_MSG_BREAK(false);
-			}
+			HandleWriteMBC((uint32_t)i, value);
 
 			return memory[i];
 		}
@@ -107,25 +92,7 @@ namespace emu
 		template <typename Integer>
 		const uint8_t& operator[](Integer i) const
 		{
-			if (bankType == BankingType::MBC1)
-			{
-				if (i >= 0x4000 && i < 0x8000)
-					return rom[romBankOffset + (i - 0x4000)];
-
-				if (i >= 0xa000 && i < 0xc000 && cartrigeRam.enabled)
-					if ((size_t)(i - 0xa000) < cartrigeRam.size)
-						return cartrigeRam.ram[i - 0xa000];
-			}
-			else if (bankType == BankingType::MBC2)
-			{
-
-			}
-			else if (bankType == BankingType::MBC3)
-			{
-
-			}
-
-			return memory[i];
+			return HandleReadMBC((uint32_t)i);
 		}
 
 		// write
@@ -140,7 +107,7 @@ namespace emu
 
 		// read
 		template <typename T, typename Integer>
-		const T& As(Integer i) const
+		const T As(Integer i) const
 		{
 			return *(reinterpret_cast<const T*>(&(*this)[i]));
 		}
@@ -148,6 +115,10 @@ namespace emu
 		void LoadBootRom();
 		void LockBootRom();
 		uint8_t SetInputState(uint8_t value);
+		void HandleWriteMBC(uint32_t address, uint8_t value);
+		const uint8_t& HandleReadMBC(uint32_t address) const;
+
+		void SaveRAM();
 	};
 
 }
