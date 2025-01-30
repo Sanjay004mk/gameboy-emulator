@@ -73,6 +73,69 @@ namespace utils
 
 	static constexpr auto imgui_uint8_t_setter = imgui_uint_setter<uint8_t>;
 	static constexpr auto imgui_uint16_t_setter = imgui_uint_setter<uint16_t>;
+
+	struct TimerCallback
+	{
+		float timeout = 1.f;
+		bool enabled = true;
+		std::function<void(void*)> callback;
+		void* userPointer = nullptr;
+		float acc = 0.f;
+
+		void Tick(float ts)
+		{
+			if ((acc += ts) >= timeout)
+			{
+				callback(userPointer);
+				acc = 0.f;
+			}
+		}
+	};
+
+	struct EmulationData
+	{
+		emu::ColorPalette paletteEdit = emu::Palettes::defaultPalette;
+		std::vector<emu::ColorPalette> customPalettes;
+		
+		bool colorSelectWindowIsOpen = false;
+		ImVec4 color[4] = {};
+
+		bool ColorSelectWindow()
+		{
+			bool ret = false;
+
+			if (colorSelectWindowIsOpen)
+			{
+				ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+				ImVec2 size(500, 300);
+				ImVec2 pos = viewport->Pos;
+				pos.x += (viewport->Size.x - size.x) / 2;
+				pos.y += (viewport->Size.y - size.y) / 2;
+
+				ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
+				ImGui::SetNextWindowSize(size, ImGuiCond_Once);
+
+
+				ImGui::Begin("Color Select", &colorSelectWindowIsOpen);
+				for (size_t i = 0; i < 4; i++)
+				{
+					auto& cw = color[i];
+					auto& cv = paletteEdit.values[i];
+					cw = ImGui::ColorConvertU32ToFloat4(cv);
+					if (ImGui::ColorEdit4(("Color - " + std::to_string(i)).c_str(), &cw.x))
+					{
+						cv = ImGui::ColorConvertFloat4ToU32(cw);
+						ret = true;
+					}
+				}
+				ImGui::End();
+			}
+			return ret;
+		}
+	};
+
+	static EmulationData emuData;
 }
 
 namespace emu
@@ -88,8 +151,12 @@ namespace emu
 			auto& window = mAppInfo.window = rdr::Renderer::InstantiateWindow(config);
 
 			auto& cpu = mAppInfo.cpu = new CPU();
-			mAppInfo.emulators.emplace_back(new Emulator(cpu));
 
+			utils::TimerCallback autoSaver;
+			autoSaver.timeout = 5.f;
+			autoSaver.callback = [&](void* user) { cpu->SaveRAM(); };
+
+			mAppInfo.emulators.emplace_back(new Emulator(cpu));
 			mAppInfo.emulators.push_back(new Debugger(cpu));
 
 			window->RegisterCallback<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
@@ -118,6 +185,11 @@ namespace emu
 							// rom select
 						case rdr::Key::O:
 							utils::open_rom(window, cpu);
+							break;
+
+							// save game
+						case rdr::Key::S:
+							cpu->SaveRAM();
 							break;
 
 							// play / pause emulation
@@ -243,9 +315,11 @@ namespace emu
 
 				rdr::Renderer::EndFrame();
 
-				end = rdr::Time::GetTime();
-
 				rdr::Renderer::PollEvents();
+
+				autoSaver.Tick(ts);
+
+				end = rdr::Time::GetTime();
 			}
 
 			mAppInfo.GetCurrentEmulator().OnDetach();
@@ -310,12 +384,12 @@ namespace emu
 
 			ImGui::SameLine();
 
-			if (ImGui::Button("Options", ImVec2(ImGui::CalcTextSize("Options").x + 14.f, size.y)))
+			if (ImGui::Button("Mode", ImVec2(ImGui::CalcTextSize("Mode").x + 14.f, size.y)))
 			{
-				ImGui::OpenPopup("Options Menu");
+				ImGui::OpenPopup("Mode Menu");
 			}
 
-			if (ImGui::BeginPopup("Options Menu"))
+			if (ImGui::BeginPopup("Mode Menu"))
 			{
 				if (ImGui::MenuItem("Run"))
 				{
@@ -326,6 +400,25 @@ namespace emu
 				{
 					mAppInfo.SetEmulator(1);
 				}
+
+				ImGui::EndPopup();
+			}
+
+			ImGui::SameLine();
+
+			if (ImGui::Button("Color Palette", ImVec2(ImGui::CalcTextSize("Color Palette").x + 14.f, topBarSize.y)))
+			{
+				ImGui::OpenPopup("Color Palette Menu");
+			}
+
+			if (ImGui::BeginPopup("Color Palette Menu"))
+			{
+				for (auto& [name, pal] : Palettes::allPalettes)
+					if (ImGui::MenuItem(name))
+						mAppInfo.cpu->SetColorPalette(pal);
+
+				if (ImGui::MenuItem("Custom Color"))
+					utils::emuData.colorSelectWindowIsOpen = true;
 
 				ImGui::EndPopup();
 			}
@@ -375,6 +468,9 @@ namespace emu
 			ImGui::PopStyleColor();
 			ImGui::PopStyleVar(4);
 		}
+
+		if (utils::emuData.ColorSelectWindow())
+			mAppInfo.cpu->SetColorPalette(utils::emuData.paletteEdit);
 	}
 
 	Emulator::Emulator(CPU* cpu)

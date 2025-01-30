@@ -92,6 +92,9 @@ namespace emu
 
 		std::string SerialOut();
 
+		void SaveRAM() { memory.SaveRAM(); }
+		void SetColorPalette(const ColorPalette& palette) { ppu.SetColorPalette(palette); }
+
 	private:
 		uint32_t SingleStepUpdate();
 		uint32_t step();

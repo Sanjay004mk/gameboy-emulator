@@ -4,6 +4,31 @@
 
 namespace emu
 {
+	union ColorPalette
+	{
+		uint32_t values[4];
+		uint32_t white, lightGray, darkGray, black;
+	};
+
+	namespace Palettes
+	{
+		extern const ColorPalette defaultPalette;
+		extern const ColorPalette grayScale;
+		extern const ColorPalette blueTint;
+		extern const ColorPalette purpleTint;
+		extern const ColorPalette orangeTint;
+		extern const ColorPalette yellowTint;
+
+		inline const std::vector<std::pair<const char*, ColorPalette>> allPalettes = {
+			{ "Default", defaultPalette },
+			{ "Gray Scale", grayScale },
+			{ "Blue Tint", blueTint },
+			{ "Purple Tint", purpleTint },
+			{ "Orange Tint", orangeTint },
+			{ "Yellow Tint", yellowTint },
+		};
+	}
+
 	class PPU
 	{
 	public:
@@ -96,6 +121,7 @@ namespace emu
 		}
 
 		void SetDebugMode(bool isDebug) { debugEnabled = isDebug; }
+		void SetColorPalette(const ColorPalette& palette) { activePalette = palette; }
 
 	private:
 		void SetTextureData();
@@ -146,10 +172,12 @@ namespace emu
 		bool lineDone = false, frameDone = false;
 
 		uint32_t GetPixelFromTile(uint32_t tileDataStart, uint32_t tileNumber, uint32_t x, uint32_t y, bool signedSeek = false) const;
-		uint32_t GetSpritePixelFromTile(uint32_t tileNumber, uint32_t x, uint32_t y, uint32_t spritePalette) const;
+		std::pair<uint32_t, bool> GetSpritePixelFromTile(uint32_t tileNumber, uint32_t x, uint32_t y, uint32_t spritePalette) const;
 		uint32_t GetTileMapOffset(uint32_t x, uint32_t y) const;
 
 		uint32_t cycAcc = 0;
+
+		ColorPalette activePalette = Palettes::defaultPalette;
 
 		friend class Debugger;
 	};

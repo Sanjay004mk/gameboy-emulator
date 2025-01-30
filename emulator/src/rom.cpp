@@ -69,21 +69,13 @@ namespace emu
 		static uint32_t nbanksize[] = { 0x200, 0x800, 0x2000, 0x8000, 0x20000, 0x10000 };
 		if (type && type <= 5 || (type == 0 && bankType == BankingType::MBC2))
 		{
-			saveFileName = romFileName;
-			saveFileName.replace_extension(".sav");
-
 			cartrigeRam.numRams = nbanks[type];
 			cartrigeRam.size = type == 1 ? 0x800 : type == 0 ? 0x200 : 0x2000;
 			cartrigeRam.ram = std::vector<uint8_t>(nbanksize[type]);
 
-			if (std::filesystem::exists(saveFileName))
-			{
-				std::ifstream saveFile(saveFileName, std::ios::binary);
-				size_t saveFileSize = std::filesystem::file_size(saveFileName);
-				RDR_ASSERT_MSG(saveFileSize == cartrigeRam.ram.size(), "Save file is incorrect or potentially corrupted");
-
-				saveFile.read((char*)cartrigeRam.ram.data(), saveFileSize);
-			}
+			saveFileName = romFileName;
+			saveFileName.replace_extension(".sav");
+			LoadRAM();
 		}
 
 		memset(memory, 0, sizeof(memory));
@@ -152,12 +144,27 @@ namespace emu
 
 	void Memory::SaveRAM()
 	{
-		if (saveFileName.empty())
+		if (saveFileName.empty() || cartrigeRam.ram.size() == 0)
 			return;
 
 		std::ofstream saveFile(saveFileName, std::ios::binary);
 
 		saveFile.write((char*)cartrigeRam.ram.data(), cartrigeRam.ram.size());
+	}
+
+	void Memory::LoadRAM(const char* file)
+	{
+		if (file)
+			saveFileName = file;
+
+		if (std::filesystem::exists(saveFileName))
+		{
+			std::ifstream saveFile(saveFileName, std::ios::binary);
+			size_t saveFileSize = std::filesystem::file_size(saveFileName);
+			RDR_ASSERT_MSG(saveFileSize == cartrigeRam.ram.size(), "Save file is incorrect or corrupted");
+
+			saveFile.read((char*)cartrigeRam.ram.data(), saveFileSize);
+		}
 	}
 
 	void Memory::LoadBootRom()
@@ -220,7 +227,6 @@ namespace emu
 						if (bankType == BankingType::MBC2)
 							value &= 0x0f;
 						cartrigeRam.ram[address - 0xa000] = value;
-						SaveRAM();
 					}
 				}
 				break;

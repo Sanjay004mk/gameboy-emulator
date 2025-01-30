@@ -119,6 +119,7 @@ namespace emu
 		const uint8_t& HandleReadMBC(uint32_t address) const;
 
 		void SaveRAM();
+		void LoadRAM(const char* file = nullptr);
 	};
 
 }

@@ -4,14 +4,6 @@
 #include "rom.h"
 #include "ppu.h"
 
-// tmp
-uint32_t color_palette[] = {
-	0xffffffff,
-	0xff606060,
-	0xff303030,
-	0xff010101
-};
-
 namespace utils
 {
 	uint32_t GetColorIndexFromTileRow(uint16_t tile, uint32_t x)
@@ -26,6 +18,48 @@ namespace utils
 
 namespace emu
 {
+	extern const ColorPalette Palettes::defaultPalette = {
+		0xFFE8FCCC,
+		0xFFACD490,
+		0xFF548C70,
+		0xFF142C78
+	};
+
+	extern const ColorPalette Palettes::grayScale = {
+		0xFF0D0D0D,
+		0xFF505050,
+		0xFF909090,
+		0xFFD0D0D0
+	};
+
+	extern const ColorPalette Palettes::blueTint = {
+		0xFF301F0A,
+		0xFF705020,
+		0xFFC0A060,
+		0xFFF0D090
+	};
+
+	extern const ColorPalette Palettes::purpleTint = {
+		0xFF200020,
+		0xFF502050,
+		0xFF905090,
+		0xFFD090D0
+	};
+
+	extern const ColorPalette Palettes::orangeTint = {
+		0xFF000030,
+		0xFF103070,
+		0xFF3060B0,
+		0xFF50A0F0
+	};
+
+	extern const ColorPalette Palettes::yellowTint = {
+		0xFF002A3A,
+		0xFF105A7A,
+		0xFF30A0D0,
+		0xFF90E0F8
+	};
+
 	PPU::TextureMap::TextureMap(uint32_t w, uint32_t h)
 	{
 		rdr::BufferConfiguration bufferConfig;
@@ -212,7 +246,7 @@ namespace emu
 				{
 					uint32_t index = utils::GetColorIndexFromTileRow(tile, k);
 					index = (memory[0xff47] >> (index * 2)) & 3;
-					tiles.cpuBuffer[(y + j) * 256 + x + k] = color_palette[index];
+					tiles.cpuBuffer[(y + j) * 256 + x + k] = activePalette.values[index];
 				}
 			}
 		}
@@ -245,7 +279,7 @@ namespace emu
 		return index;
 	}
 
-	uint32_t PPU::GetSpritePixelFromTile(uint32_t tileNumber, uint32_t x, uint32_t y, uint32_t spritePalette) const
+	std::pair<uint32_t, bool> PPU::GetSpritePixelFromTile(uint32_t tileNumber, uint32_t x, uint32_t y, uint32_t spritePalette) const
 	{
 		uint32_t spriteData = 0x8000;
 		uint32_t location = spriteData + (tileNumber * 0x10) + ((y % 8) * 2);
@@ -257,10 +291,10 @@ namespace emu
 		index |= ((tileData << (x % 8)) & (0x0080)) ? 0x2 : 0x0;
 
 		// index from color palette
-		if (index)
-			index = (spritePalette >> (index * 2)) & 3;
+		bool shouldDraw = index;
+		index = (spritePalette >> (index * 2)) & 3;
 
-		return index;
+		return { index, shouldDraw };
 	}
 
 	uint32_t PPU::GetTileMapOffset(uint32_t x, uint32_t y) const
@@ -289,7 +323,7 @@ namespace emu
 
 			uint32_t index = GetPixelFromTile(bgTileData, tileNumber, x, y, signedSeek);
 
-			bg.cpuBuffer[row * 256 + i] = color_palette[index];
+			bg.cpuBuffer[row * 256 + i] = activePalette.values[index];
 		}
 	}
 
@@ -317,7 +351,7 @@ namespace emu
 
 			uint32_t index = GetPixelFromTile(windowTileData, tileNumber, x, y, windowTileData == 0x8800);
 
-			window.cpuBuffer[row * 256 + i] = color_palette[index];
+			window.cpuBuffer[row * 256 + i] = activePalette.values[index];
 		}
 	}
 
@@ -361,10 +395,10 @@ namespace emu
 
 			for (uint32_t i = 0; i < 8; i++)
 			{
-				uint32_t index = GetSpritePixelFromTile(tileNumber, xflip ? (7 - i) : i, y, palette);
+				auto [index, shouldDraw] = GetSpritePixelFromTile(tileNumber, xflip ? (7 - i) : i, y, palette);
 				
-				if (index)
-					sprite.cpuBuffer[row * 256 + x + i] = color_palette[index];
+				if (shouldDraw)
+					sprite.cpuBuffer[row * 256 + x + i] = activePalette.values[index];
 			}
 		}
 	}
