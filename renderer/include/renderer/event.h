@@ -50,7 +50,7 @@ namespace rdr
 		Event& mEvent;
 	};
 
-#define EVENT_CLASS_TYPE(type) static EventID GetStaticType() { return EventType::type; }\
+#define EVENT_CLASS_TYPE(type) static EventID GetEventTypeStatic() { return EventType::type; }\
 virtual EventID GetEventType() const override { return EventType::type; }\
 virtual std::string_view GetName() const override { return #type; }
 

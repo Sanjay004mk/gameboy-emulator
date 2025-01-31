@@ -9,8 +9,8 @@ namespace utils
 	uint32_t GetColorIndexFromTileRow(uint16_t tile, uint32_t x)
 	{
 		uint32_t index = 0;
-		index = ((tile << (x % 8)) & (0x8000)) ? 0x1 : 0x0;
-		index |= ((tile << (x % 8)) & (0x0080)) ? 0x2 : 0x0;
+		index = ((tile << (x % 8)) & (0x8000)) ? 0x2 : 0x0;
+		index |= ((tile << (x % 8)) & (0x0080)) ? 0x1 : 0x0;
 
 		return index;
 	}
@@ -101,6 +101,18 @@ namespace emu
 		texture->SetData(stagingBuffer, async);
 	}
 
+	void PPU::RowFilledInfo::SetPos(uint32_t index)
+	{
+		uint64_t& bits = rowFilledBits[index / 64];
+		bits |= (1ull << (index % 64));
+	}
+
+	bool PPU::RowFilledInfo::GetPos(uint32_t index) const
+	{
+		uint64_t bits = rowFilledBits[index / 64];
+		return bits & (1ull << (index % 64));
+	}
+
 	PPU::PPU(Memory& memory)
 		: memory(memory), display(160, 144), bg(256, 256), window(256, 256), sprite(256, 256), tiles(256, 256)
 	{
@@ -153,6 +165,7 @@ namespace emu
 			SetWindow(ly);
 			SetSprite(ly);
 			lineDone = true;
+			rowFilledInfo.Reset();
 		}
 
 		if (ly == 144 && !frameDone)
@@ -267,14 +280,15 @@ namespace emu
 			tileDataStart + 0x800 + ((int8_t)tileNumber * 0x10) + ((y % 8) * 2) : // signed indexing
 			tileDataStart + (tileNumber * 0x10) + ((y % 8) * 2);
 
-		uint16_t tileData = memory.As<uint16_t>(location); // tile row
+		uint8_t tileLo = memory.memory[location]; // tile row
+		uint8_t tileHi = memory.memory[location + 1]; // tile row
 
 		uint32_t index = 0;
-		index = ((tileData << (x % 8)) & (0x8000)) ? 0x1 : 0x0;
-		index |= ((tileData << (x % 8)) & (0x0080)) ? 0x2 : 0x0;
+		index = ((tileLo << (x % 8)) & (0x80)) ? 0x1 : 0x0;
+		index |= ((tileHi << (x % 8)) & (0x80)) ? 0x2 : 0x0;
 
 		// index from color palette
-		index = (memory[0xff47] >> (index * 2)) & 3;
+		index = (memory.memory[0xff47] >> (index * 2)) & 3;
 
 		return index;
 	}
@@ -284,14 +298,16 @@ namespace emu
 		uint32_t spriteData = 0x8000;
 		uint32_t location = spriteData + (tileNumber * 0x10) + ((y % 8) * 2);
 
-		uint16_t tileData = memory.As<uint16_t>(location);
+		uint16_t tileLo = memory.memory[location];
+		uint16_t tileHi = memory.memory[location + 1];
 
 		uint32_t index = 0;
-		index = ((tileData << (x % 8)) & (0x8000)) ? 0x1 : 0x0;
-		index |= ((tileData << (x % 8)) & (0x0080)) ? 0x2 : 0x0;
+		index = ((tileLo << (x % 8)) & (0x80)) ? 0x1 : 0x0;
+		index |= ((tileHi << (x % 8)) & (0x80)) ? 0x2 : 0x0;
 
 		// index from color palette
 		bool shouldDraw = index;
+
 		index = (spritePalette >> (index * 2)) & 3;
 
 		return { index, shouldDraw };
@@ -324,6 +340,9 @@ namespace emu
 			uint32_t index = GetPixelFromTile(bgTileData, tileNumber, x, y, signedSeek);
 
 			bg.cpuBuffer[row * 256 + i] = activePalette.values[index];
+
+			if (index)
+				rowFilledInfo.SetPos(i);
 		}
 	}
 
@@ -352,6 +371,7 @@ namespace emu
 			uint32_t index = GetPixelFromTile(windowTileData, tileNumber, x, y, windowTileData == 0x8800);
 
 			window.cpuBuffer[row * 256 + i] = activePalette.values[index];
+			rowFilledInfo.SetPos(i);
 		}
 	}
 
@@ -361,44 +381,81 @@ namespace emu
 			return;
 
 		uint32_t oam = 0xfe00;
-
 		uint32_t height = SpriteYSize();
+
+		struct SpriteData
+		{
+			uint32_t y, x, tileNumber, palette;
+			bool objBehind, xflip, yflip;
+		};
+
+		std::array<SpriteData, 10> sprites = {};
+		uint32_t spriteCount = 0, xmax = 0;
 
 		for (uint32_t k = oam; k < 0xfea0; k += 4)
 		{
-			uint32_t y = memory[k] - 16;
-			uint32_t x = memory[k + 1] - 8;
-			uint32_t tileNumber = memory[k + 2];
+			SpriteData sprite = {};
+			sprite.y = memory[k] - 16;
+			sprite.x = memory[k + 1] - 8;
+			sprite.tileNumber = memory[k + 2];
 			uint32_t flags = memory[k + 3];
 
-			bool xflip = flags & (1 << 5);
-			bool yflip = flags & (1 << 6);
+			sprite.objBehind = flags & (1 << 7);
+			sprite.xflip = flags & (1 << 5);
+			sprite.yflip = flags & (1 << 6);
+			sprite.palette = flags & (1 << 4) ? memory[0xff49] : memory[0xff48];
 
-			uint32_t palette = flags & (1 << 4) ? memory[0xff49] : memory[0xff48];
-
-			if (row < y || row >= (y + height) || x >= 160 || y >= 144)
+			if (spriteCount == 10 && sprite.x >= xmax)
 				continue;
 
-			if (yflip)
+			if (row < sprite.y || row >= (sprite.y + height) || sprite.x >= 160 || sprite.y >= 144)
+				continue;
+
+			if (sprite.yflip)
 			{
-				uint32_t ymax = y + height - 1;
-				y = ymax - row;
+				uint32_t ymax = sprite.y + height - 1;
+				sprite.y = ymax - row;
 			}
 			else
-				y = row - y;
+				sprite.y = row - sprite.y;
 
-			if (y > 7)
+			if (sprite.y > 7)
 			{
-				y -= 8;
-				tileNumber++;
+				sprite.y -= 8;
+				sprite.tileNumber++;
 			}
 
+			if (sprite.x > xmax)
+				xmax = sprite.x;
+
+			uint32_t i = 0;
+			for (; i < spriteCount; i++)
+			{
+				if (sprites[i].x > sprite.x)
+				{
+					for (uint32_t j = glm::min(spriteCount, 9u); j > i; j--)
+						sprites[j] = sprites[j - 1];
+					break;
+				}
+			}
+		
+			i = glm::min(i, 9u);
+			sprites[i] = sprite;
+			spriteCount = glm::min(spriteCount + 1, 10u);
+		}
+
+		for (uint32_t c = 0; c < spriteCount; c++)
+		{
+			SpriteData& sprite = sprites[c];
 			for (uint32_t i = 0; i < 8; i++)
 			{
-				auto [index, shouldDraw] = GetSpritePixelFromTile(tileNumber, xflip ? (7 - i) : i, y, palette);
-				
+				if (sprite.objBehind && rowFilledInfo.GetPos(sprite.x + i))
+					continue;
+
+				auto [index, shouldDraw] = GetSpritePixelFromTile(sprite.tileNumber, sprite.xflip ? (7 - i) : i, sprite.y, sprite.palette);
+
 				if (shouldDraw)
-					sprite.cpuBuffer[row * 256 + x + i] = activePalette.values[index];
+					this->sprite.cpuBuffer[row * 256 + sprite.x + i] = activePalette.values[index];
 			}
 		}
 	}

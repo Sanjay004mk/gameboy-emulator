@@ -82,7 +82,7 @@ namespace rdr
 		template <typename T, typename F>
 		void RegisterCallback(F func)
 		{
-			RegisterCallback(T::GetStaticType(), [func](Event& e) { func(static_cast<T&>(e)); });
+			RegisterCallback(T::GetEventTypeStatic(), [func](Event& e) { func(static_cast<T&>(e)); });
 		}
 
 		bool IsKeyDown(KeyCode key) const;

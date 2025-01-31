@@ -14,7 +14,7 @@ static ImVec2 topBarSize(0, 20);
 
 namespace utils
 {
-	void open_rom(rdr::Window* window, emu::CPU* cpu)
+	static void open_rom(rdr::Window* window, emu::CPU* cpu)
 	{
 		std::string file = window->OpenFile("Gameboy Rom (.gb)\0*.gb\0");
 		if (file != std::string())
@@ -24,7 +24,13 @@ namespace utils
 		}
 	}
 
-	void dockspace_setup_common(const char* window_name)
+	static void open_ram(rdr::Window* window, emu::CPU* cpu)
+	{
+		std::string file = window->OpenFile("Gameboy Save File (.sav)\0*.sav\0");
+		cpu->LoadRAM(file.c_str());
+	}
+
+	static void dockspace_setup_common(const char* window_name)
 	{
 		ImGuiWindowFlags window_flags =
 			ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar |
@@ -52,7 +58,7 @@ namespace utils
 	}
 
 	template <typename T>
-	void imgui_uint_setter(T* value, char buf[], const char* name)
+	static void imgui_uint_setter(T* value, char buf[], const char* name)
 	{
 		static constexpr const char* pat = sizeof(T) == 1 ? "%02x" : "%04x";
 		sprintf_s(buf, sizeof(buf), pat, *(value));
@@ -77,7 +83,6 @@ namespace utils
 	struct TimerCallback
 	{
 		float timeout = 1.f;
-		bool enabled = true;
 		std::function<void(void*)> callback;
 		void* userPointer = nullptr;
 		float acc = 0.f;
@@ -94,6 +99,7 @@ namespace utils
 
 	struct EmulationData
 	{
+		TimerCallback autoSaver;
 		emu::ColorPalette paletteEdit = emu::Palettes::defaultPalette;
 		std::vector<emu::ColorPalette> customPalettes;
 		
@@ -152,17 +158,21 @@ namespace emu
 
 			auto& cpu = mAppInfo.cpu = new CPU();
 
-			utils::TimerCallback autoSaver;
+			utils::TimerCallback& autoSaver = utils::emuData.autoSaver;
 			autoSaver.timeout = 5.f;
 			autoSaver.callback = [&](void* user) { cpu->SaveRAM(); };
 
 			mAppInfo.emulators.emplace_back(new Emulator(cpu));
 			mAppInfo.emulators.push_back(new Debugger(cpu));
 
+			window->SetEventCallback([&](rdr::Event& e) 
+				{
+					mAppInfo.GetCurrentEmulator().OnEvent(e);
+				});
+
 			window->RegisterCallback<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
 				{
-					if (mAppInfo.GetCurrentEmulator().OnKeyPressed(e))
-						return;
+					mAppInfo.GetCurrentEmulator().OnEvent(e);
 
 					if (window->IsKeyDown(rdr::Key::LeftControl))
 					{
@@ -185,6 +195,12 @@ namespace emu
 							// rom select
 						case rdr::Key::O:
 							utils::open_rom(window, cpu);
+							cpu->Reset(!window->IsKeyDown(rdr::Key::K));
+							break;
+
+							// ram select
+						case rdr::Key::L:
+							utils::open_ram(window, cpu);
 							break;
 
 							// save game
@@ -211,83 +227,7 @@ namespace emu
 							break;
 
 						}
-					}
-					else
-					{
-						switch (e.GetKeyCode())
-						{
-						case rdr::Key::Up:
-							cpu->InputPressed(Input_Button_Up);
-							break;
-
-						case rdr::Key::Down:
-							cpu->InputPressed(Input_Button_Down);
-							break;
-
-						case rdr::Key::Left:
-							cpu->InputPressed(Input_Button_Left);
-							break;
-
-						case rdr::Key::Right:
-							cpu->InputPressed(Input_Button_Right);
-							break;
-
-						case rdr::Key::A:
-							cpu->InputPressed(Input_Button_A);
-							break;
-
-						case rdr::Key::Z:
-							cpu->InputPressed(Input_Button_B);
-							break;
-
-						case rdr::Key::S:
-							cpu->InputPressed(Input_Button_Select);
-							break;
-
-						case rdr::Key::X:
-							cpu->InputPressed(Input_Button_Start);
-							break;
-						}
-					}
-					
-				});
-
-			window->RegisterCallback<rdr::KeyReleasedEvent>([&](rdr::KeyReleasedEvent& e)
-				{
-					switch (e.GetKeyCode())
-					{
-					case rdr::Key::Up:
-						cpu->InputReleased(Input_Button_Up);
-						break;
-
-					case rdr::Key::Down:
-						cpu->InputReleased(Input_Button_Down);
-						break;
-
-					case rdr::Key::Left:
-						cpu->InputReleased(Input_Button_Left);
-						break;
-
-					case rdr::Key::Right:
-						cpu->InputReleased(Input_Button_Right);
-						break;
-
-					case rdr::Key::A:
-						cpu->InputReleased(Input_Button_A);
-						break;
-
-					case rdr::Key::Z:
-						cpu->InputReleased(Input_Button_B);
-						break;
-
-					case rdr::Key::S:
-						cpu->InputReleased(Input_Button_Select);
-						break;
-
-					case rdr::Key::X:
-						cpu->InputReleased(Input_Button_Start);
-						break;
-					}
+					}					
 				});
 
 			if (argc > 1)
@@ -369,15 +309,24 @@ namespace emu
 
 			if (ImGui::BeginPopup("File Menu"))
 			{
-				if (ImGui::MenuItem("Open Rom", "Ctrl+O"))
+				if (ImGui::MenuItem("Open Rom", "Ctrl + O"))
 				{
 					utils::open_rom(mAppInfo.window, mAppInfo.cpu);
 				}
-				if (ImGui::MenuItem("Open Rom without Boot", "Ctrl+Shift+O"))
+				if (ImGui::MenuItem("Open Rom without Boot", "Ctrl + K + O"))
 				{
 					utils::open_rom(mAppInfo.window, mAppInfo.cpu);
 					mAppInfo.cpu->Reset(false);
 				}
+				if (ImGui::MenuItem("Open Game Save File", "Ctrl + L"))
+				{
+					utils::open_ram(mAppInfo.window, mAppInfo.cpu);
+				}
+				if (ImGui::MenuItem("Save Game", "Ctrl + S"))
+				{
+					mAppInfo.cpu->SaveRAM();
+				}
+				ImGui::InputFloat("Auto save Interval", &utils::emuData.autoSaver.timeout);
 				// TODO : save states, reload, etc.
 				ImGui::EndPopup();
 			}
@@ -418,7 +367,10 @@ namespace emu
 						mAppInfo.cpu->SetColorPalette(pal);
 
 				if (ImGui::MenuItem("Custom Color"))
+				{
+					utils::emuData.paletteEdit = mAppInfo.cpu->GetColorPalette();
 					utils::emuData.colorSelectWindowIsOpen = true;
+				}
 
 				ImGui::EndPopup();
 			}
@@ -481,6 +433,112 @@ namespace emu
 
 	Emulator::~Emulator()
 	{
+
+	}
+
+	void Emulator::OnEvent(rdr::Event& e)
+	{
+		rdr::EventDispatcher dispatcher(e);
+
+		dispatcher.Dispatch<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
+			{
+				if (e.GetKeyCode() == rdr::Key::LeftBracket)
+				{
+					emulationSpeed -= 0.1f;
+					return true;
+				}
+				else if (e.GetKeyCode() == rdr::Key::RightBracket)
+				{
+					emulationSpeed += 0.1f;
+					return true;
+				}
+
+				bool ret = true;
+				switch (e.GetKeyCode())
+				{
+				case rdr::Key::Up:
+					mCpu->InputPressed(Input_Button_Up);
+					break;
+
+				case rdr::Key::Down:
+					mCpu->InputPressed(Input_Button_Down);
+					break;
+
+				case rdr::Key::Left:
+					mCpu->InputPressed(Input_Button_Left);
+					break;
+
+				case rdr::Key::Right:
+					mCpu->InputPressed(Input_Button_Right);
+					break;
+
+				case rdr::Key::A:
+					mCpu->InputPressed(Input_Button_A);
+					break;
+
+				case rdr::Key::Z:
+					mCpu->InputPressed(Input_Button_B);
+					break;
+
+				case rdr::Key::S:
+					mCpu->InputPressed(Input_Button_Select);
+					break;
+
+				case rdr::Key::X:
+					mCpu->InputPressed(Input_Button_Start);
+					break;
+
+				default:
+					ret = false;
+				}
+
+				return ret;
+			});
+
+		dispatcher.Dispatch<rdr::KeyReleasedEvent>([&](rdr::KeyReleasedEvent& e)
+			{
+				bool ret = true;
+				CPU* cpu = mCpu;
+				switch (e.GetKeyCode())
+				{
+				case rdr::Key::Up:
+					cpu->InputReleased(Input_Button_Up);
+					break;
+
+				case rdr::Key::Down:
+					cpu->InputReleased(Input_Button_Down);
+					break;
+
+				case rdr::Key::Left:
+					cpu->InputReleased(Input_Button_Left);
+					break;
+
+				case rdr::Key::Right:
+					cpu->InputReleased(Input_Button_Right);
+					break;
+
+				case rdr::Key::A:
+					cpu->InputReleased(Input_Button_A);
+					break;
+
+				case rdr::Key::Z:
+					cpu->InputReleased(Input_Button_B);
+					break;
+
+				case rdr::Key::S:
+					cpu->InputReleased(Input_Button_Select);
+					break;
+
+				case rdr::Key::X:
+					cpu->InputReleased(Input_Button_Start);
+					break;
+
+				default:
+					ret = false;
+				}
+
+				return ret;
+			});
 
 	}
 
@@ -569,14 +627,13 @@ namespace emu
 			if (ImGui::MenuItem("Reset", "Ctrl + R"))
 				mCpu->Reset();
 
-			for (float i = 0.5f; i <= 5.f; i += 0.5f)
+			for (float i = 1.f; i <= 5.f; i++)
 			{
 				if (ImGui::MenuItem(("Speed: " + fmt::format("{:.1f}", i) + "x").c_str(), "Inc: ] Dec: ["))
 					emulationSpeed = i;
 			}
 
 			ImGui::InputFloat("Custom Speed", &emulationSpeed);
-
 
 			ImGui::EndPopup();
 		}
@@ -586,22 +643,6 @@ namespace emu
 	void Emulator::ImGuiFooterOptions(const glm::vec2& region)
 	{
 
-	}
-
-	bool Emulator::OnKeyPressed(rdr::KeyPressedEvent& e)
-	{
-		if (e.GetKeyCode() == rdr::Key::LeftBracket)
-		{
-			emulationSpeed -= 0.1f;
-			return true;
-		}
-		else if (e.GetKeyCode() == rdr::Key::RightBracket)
-		{
-			emulationSpeed += 0.1f;
-			return true;
-		}
-
-		return false;
 	}
 
 	Debugger::Debugger(CPU* cpu)
@@ -646,23 +687,30 @@ namespace emu
 		}
 	}
 
-	bool Debugger::OnKeyPressed(rdr::KeyPressedEvent& e)
+	void Debugger::OnEvent(rdr::Event& e)
 	{
-		if (Emulator::OnKeyPressed(e))
-			return true;
+		Emulator::OnEvent(e);
 
-		if (e.GetKeyCode() == rdr::Key::F9)
-		{
-			shouldStep = true;
-			return true;
-		}
-		else if (e.GetKeyCode() == rdr::Key::F5 || (e.GetKeyCode() == rdr::Key::P && mAppInfo.window->IsKeyDown(rdr::Key::LeftControl)))
-		{
-			emulationMode = (Mode)(!(bool)(emulationMode));
-			return true;
-		}
+		if (e.handled)
+			return;
 
-		return false;
+		rdr::EventDispatcher dispatcher(e);
+
+		dispatcher.Dispatch<rdr::KeyPressedEvent>([&](rdr::KeyPressedEvent& e)
+			{
+				if (e.GetKeyCode() == rdr::Key::F9)
+				{
+					shouldStep = true;
+					return true;
+				}
+				else if (e.GetKeyCode() == rdr::Key::F5 || (e.GetKeyCode() == rdr::Key::P && mAppInfo.window->IsKeyDown(rdr::Key::LeftControl)))
+				{
+					emulationMode = (Mode)(!(bool)(emulationMode));
+					return true;
+				}
+
+				return false;
+			});
 	}
 
 	void Debugger::UpdateMemoryView()

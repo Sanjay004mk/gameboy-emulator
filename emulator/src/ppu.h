@@ -122,6 +122,7 @@ namespace emu
 
 		void SetDebugMode(bool isDebug) { debugEnabled = isDebug; }
 		void SetColorPalette(const ColorPalette& palette) { activePalette = palette; }
+		const ColorPalette& GetColorPalette() const { return activePalette; }
 
 	private:
 		void SetTextureData();
@@ -170,6 +171,15 @@ namespace emu
 
 		PPUMode prevMode = Mode0_HBlank;
 		bool lineDone = false, frameDone = false;
+		struct RowFilledInfo
+		{
+			uint64_t rowFilledBits[4] = {};
+
+			void SetPos(uint32_t index);
+			bool GetPos(uint32_t index) const;
+			void Reset() { memset(rowFilledBits, 0, sizeof(rowFilledBits)); }
+		};
+		RowFilledInfo rowFilledInfo;
 
 		uint32_t GetPixelFromTile(uint32_t tileDataStart, uint32_t tileNumber, uint32_t x, uint32_t y, bool signedSeek = false) const;
 		std::pair<uint32_t, bool> GetSpritePixelFromTile(uint32_t tileNumber, uint32_t x, uint32_t y, uint32_t spritePalette) const;

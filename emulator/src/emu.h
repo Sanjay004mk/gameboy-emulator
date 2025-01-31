@@ -13,7 +13,7 @@ namespace emu
 		~Emulator();
 
 		virtual void Step(float timestep);
-		virtual bool OnKeyPressed(rdr::KeyPressedEvent& e);
+		virtual void OnEvent(rdr::Event& e);
 
 		static void StartEmulator(int argc, const char** argv);
 
@@ -67,7 +67,7 @@ namespace emu
 		~Debugger();
 
 		void Step(float timestep) override;
-		bool OnKeyPressed(rdr::KeyPressedEvent& e) override;
+		void OnEvent(rdr::Event& e) override;
 
 	private:
 		void OnImGuiUpdate() override;
