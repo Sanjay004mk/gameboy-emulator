@@ -1,9 +1,23 @@
 #pragma once
 
 #include "rom.h"
+#include <miniaudio.h>
 
 namespace emu
 {
+	class SoundChannel
+	{
+	public:
+		SoundChannel() = default;
+		virtual ~SoundChannel() = default;
+	protected:
+	};
+
+	class SoundChannel1 : public SoundChannel
+	{
+
+	};
+
 	class SPU
 	{
 	public:
@@ -14,5 +28,7 @@ namespace emu
 
 	private:
 		Memory& memory;
+		ma_device audioDevice = {};
+		SoundChannel* sc[4] = {};
 	};
 }
