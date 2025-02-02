@@ -14,6 +14,7 @@ project "emulator"
         "%{IncludeDir.glm}",
         "%{IncludeDir.spdlog}",
         "%{IncludeDir.imgui}",
+        "%{IncludeDir.miniaudio}",
         "src/pch",
         "src",
     }

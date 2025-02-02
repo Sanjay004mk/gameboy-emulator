@@ -2,6 +2,7 @@
 
 #include "rom.h"
 #include "ppu.h"
+#include "spu.h"
 
 namespace emu
 {
@@ -877,6 +878,7 @@ namespace emu
 		Flags flags;
 
 		PPU ppu;
+		SPU spu;
 
 		bool running = false;
 

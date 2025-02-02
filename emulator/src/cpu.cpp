@@ -6,7 +6,7 @@
 namespace emu
 {
 	CPU::CPU()
-		: flags(AF.lo), memory([this](Input ip) { return this->GetInputState(ip); }), ppu(memory)
+		: flags(AF.lo), memory([this](Input ip) { return this->GetInputState(ip); }), ppu(memory), spu(memory)
 	{
 	}
 
@@ -89,6 +89,7 @@ namespace emu
 		}
 
 		ppu.step(stepCycle);
+		spu.step(stepCycle);
 
 		updateTimer(stepCycle);
 		handleInterrupts();
