@@ -31,6 +31,8 @@ namespace emu
 
 	Memory::~Memory()
 	{
+		SaveRAM();
+
 		if (rom)
 			delete[] rom;
 	}
