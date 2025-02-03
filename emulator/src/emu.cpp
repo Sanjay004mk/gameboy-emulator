@@ -86,13 +86,26 @@ namespace utils
 		std::function<void(void*)> callback;
 		void* userPointer = nullptr;
 		float acc = 0.f;
+		bool cumulative = false;
 
 		void Tick(float ts)
 		{
-			if ((acc += ts) >= timeout)
+			acc += ts;
+			if (acc >= timeout)
 			{
-				callback(userPointer);
-				acc = 0.f;
+				if (cumulative)
+				{
+					while (acc >= timeout)
+					{
+						acc -= timeout;
+						callback(userPointer);
+					}
+				}
+				else
+				{
+					callback(userPointer);
+					acc = 0.f;
+				}
 			}
 		}
 	};
@@ -161,6 +174,11 @@ namespace emu
 			utils::TimerCallback& autoSaver = utils::emuData.autoSaver;
 			autoSaver.timeout = 5.f;
 			autoSaver.callback = [&](void* user) { cpu->SaveRAM(); };
+
+			utils::TimerCallback audioSampler = {};
+			audioSampler.timeout = 1.f / SPU::SAMPLE_RATE;
+			audioSampler.callback = [&](void* user) { cpu->GetSPU().Sample(); };
+			audioSampler.cumulative = true;
 
 			mAppInfo.emulators.emplace_back(new Emulator(cpu));
 			mAppInfo.emulators.push_back(new Debugger(cpu));
@@ -258,6 +276,7 @@ namespace emu
 				rdr::Renderer::PollEvents();
 
 				autoSaver.Tick(ts);
+				audioSampler.Tick(ts);
 
 				end = rdr::Time::GetTime();
 			}

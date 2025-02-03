@@ -15,6 +15,7 @@ project "emulator"
         "%{IncludeDir.spdlog}",
         "%{IncludeDir.imgui}",
         "%{IncludeDir.miniaudio}",
+        "%{IncludeDir.camelqueue}",
         "src/pch",
         "src",
     }

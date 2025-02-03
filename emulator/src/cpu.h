@@ -98,6 +98,8 @@ namespace emu
 		void SetColorPalette(const ColorPalette& palette) { ppu.SetColorPalette(palette); }
 		const ColorPalette& GetColorPalette() const { return ppu.GetColorPalette(); }
 
+		SPU& GetSPU() { return spu; }
+
 	private:
 		uint32_t SingleStepUpdate();
 		uint32_t step();
