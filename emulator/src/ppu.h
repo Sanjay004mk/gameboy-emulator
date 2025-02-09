@@ -40,7 +40,7 @@ namespace emu
 			Mode3_Drawing
 		};
 
-		PPU(Memory& memory);
+		PPU(Memory& memory, std::function<void(void)> vblankCallback);
 		~PPU();
 
 		void step(uint32_t cycles);
@@ -133,6 +133,7 @@ namespace emu
 		void SetSprite(uint32_t row);
 
 		Memory& memory;
+		std::function<void(void)> vblankCallback;
 
 		struct TextureMap
 		{

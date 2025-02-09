@@ -113,8 +113,8 @@ namespace emu
 		return bits & (1ull << (index % 64));
 	}
 
-	PPU::PPU(Memory& memory)
-		: memory(memory), display(160, 144), bg(256, 256), window(256, 256), sprite(256, 256), tiles(256, 256)
+	PPU::PPU(Memory& memory, std::function<void(void)> vblankCallback)
+		: memory(memory), display(160, 144), bg(256, 256), window(256, 256), sprite(256, 256), tiles(256, 256), vblankCallback(vblankCallback)
 	{
 		
 	}
@@ -207,6 +207,7 @@ namespace emu
 		{
 			memory.memory[0xff44] = 0;
 			frameDone = false;
+			vblankCallback();
 		}
 
 	}

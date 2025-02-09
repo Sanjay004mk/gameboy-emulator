@@ -883,6 +883,7 @@ namespace emu
 		SPU spu;
 
 		bool running = false;
+		bool vblank = false;
 
 		uint32_t divCycle = 0, timerCycles = 0;
 		std::string serialData;

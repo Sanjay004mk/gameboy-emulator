@@ -47,6 +47,7 @@ namespace emu
 		enum class BankingType { MBC0, MBC1, MBC2, MBC3, MBC5 };
 
 		std::function<bool(Input)> getInputState;
+		std::function<void(uint32_t, uint8_t)> spuWriteCallback;
 		BankingType bankType = BankingType::MBC0;
 		size_t romBankOffset = 0x4000;
 		uint16_t mbc5RomBankNumber = 0;
@@ -69,6 +70,9 @@ namespace emu
 				LockBootRom();
 				return memory[i] = value;
 			}
+
+			if (spuWriteCallback && i >= 0xff10 && i <= 0xff26)
+				spuWriteCallback((uint32_t)i, value);
 
 			// OAM transfer
 			if (i == 0xff46)

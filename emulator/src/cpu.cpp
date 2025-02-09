@@ -6,8 +6,9 @@
 namespace emu
 {
 	CPU::CPU()
-		: flags(AF.lo), memory([this](Input ip) { return this->GetInputState(ip); }), ppu(memory), spu(memory)
+		: flags(AF.lo), memory([this](Input ip) { return this->GetInputState(ip); }), ppu(memory, [this]() { vblank = true; }), spu(memory)
 	{
+		memory.spuWriteCallback = [this](uint32_t adr, uint8_t v) { this->spu.WriteCallback(adr, v); };
 	}
 
 	CPU::~CPU()
@@ -70,7 +71,8 @@ namespace emu
 
 		uint32_t totalCycles = 0;
 
-		while (totalCycles < (frequency / 60))
+		vblank = false;
+		while (!vblank)
 			totalCycles += SingleStepUpdate();
 	}
 
