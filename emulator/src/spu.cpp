@@ -67,6 +67,9 @@ namespace emu
 
 	void SPU::step(uint32_t cycles)
 	{
+		for (auto& s : sc)
+			s->step(cycles);
+
 		cycAcc += cycles;
 		if (cycAcc > (CPU::frequency / SAMPLE_RATE))
 		{
@@ -104,11 +107,59 @@ namespace emu
 
 	}
 
+	void SC::step(uint32_t cyc)
+	{
+		cycles += cyc;
+		if (cycles >= 8192) // 256 hz
+		{
+			cycles -= 8192;
+			frameIndex = (frameIndex + 1) % 8;
+			FrameStep();
+		}
+
+		dutyTimer--;
+		if (dutyTimer <= 0)
+		{
+			dutyTimer = (2048 - GetFrequency()) * 4;
+			dutyIndex = (dutyIndex + 1) % 8;
+		}
+	}
+
+	void SC::LengthCounterStep()
+	{
+		if (--lengthCounter <= 0)
+			enabled = false;
+	}
+
+	void SC::VolumeEnvelopeStep()
+	{
+		if (updateVolume)
+		{
+			volumeEnvelope += IsVolumeAdd() ? 1 : -1;
+			if (volumeEnvelope > 15 || volumeEnvelope < 0)
+			{
+				volumeEnvelope = glm::clamp(volumeEnvelope, 0, 15);
+				updateVolume = false;
+			}
+		}
+	}
+
 	uint8_t& SC::nrx0()	{ return memory.memory[0xff10 + nrOffset + 0x0]; }
 	uint8_t& SC::nrx1() { return memory.memory[0xff10 + nrOffset + 0x1]; }
 	uint8_t& SC::nrx2() { return memory.memory[0xff10 + nrOffset + 0x2]; }
 	uint8_t& SC::nrx3() { return memory.memory[0xff10 + nrOffset + 0x3]; }
 	uint8_t& SC::nrx4() { return memory.memory[0xff10 + nrOffset + 0x4]; }
+	uint8_t& SC::nrx(uint32_t i)
+	{
+		switch (i)
+		{
+		case 1: return nrx1();
+		case 2: return nrx2();
+		case 3: return nrx3();
+		case 4: return nrx4();
+		default:	return nrx0();
+		}
+	}
 
 	uint32_t SC::GetFrequency()	{ return (uint32_t)nrx3() | ((uint32_t)(nrx4() & 7) << 8); }
 	
@@ -128,10 +179,52 @@ namespace emu
 		nrx4() |= (frequency >> 8);
 	}
 
+	void SC::Trigger()
+	{
+		enabled = true;
+		updateVolume = true;
+
+		if (lengthCounter == 0)
+			lengthCounter = 64 - GetLengthCounter();
+
+		dutyTimer = (2048 - GetFrequency()) * 4;
+	}
+
 	SC1::SC1(Memory& memory)
 		: SC(memory, 0)
 	{
 
+	}
+
+	void SC1::FrequencySweepStep()
+	{
+		uint32_t period = nrx0() & 0x70 >> 4, shift = nrx0() & 0x07;
+
+		sweepPeriod--;
+		if (sweepPeriod > 0)
+			return;
+			
+		sweepPeriod = period ? period : 8;
+		enabled = period || shift;
+
+		if (shift)
+		{
+			uint32_t newFrequency = shadowFrequency >> shift;
+			if (nrx0() & 0x10)
+				newFrequency = -newFrequency;
+
+			newFrequency += shadowFrequency;
+			if (newFrequency > 2047)
+				enabled = false;
+			else
+			{
+				shadowFrequency = newFrequency;
+				SetFrequency(newFrequency);
+
+				if ((newFrequency + ((shadowFrequency >> shift) * ((nrx0() & 0x10) ? -1 : 1))) > 2047)
+					enabled = false;
+			}
+		}
 	}
 
 	SC2::SC2(Memory& memory)
@@ -152,19 +245,27 @@ namespace emu
 
 	}
 
-	void SC1::step(uint32_t cycles)
+	void SC1::FrameStep()
+	{
+		if (frameIndex % 2 == 0)
+			LengthCounterStep();
+
+		if (frameIndex == 2 || frameIndex == 6)
+			FrequencySweepStep();
+
+		if (frameIndex == 7)
+			VolumeEnvelopeStep();
+	}
+
+	void SC2::FrameStep()
 	{
 	}
 
-	void SC2::step(uint32_t cycles)
+	void SC3::FrameStep()
 	{
 	}
 
-	void SC3::step(uint32_t cycles)
-	{
-	}
-
-	void SC4::step(uint32_t cycles)
+	void SC4::FrameStep()
 	{
 	}
 }
