@@ -18,12 +18,13 @@ namespace emu
 		int32_t dutyTimer = 0;
 		uint32_t dutyIndex = 0;
 		int32_t lengthCounter = 0;
-		int32_t volumeEnvelope = 0; bool updateVolume = false;
+		int32_t volumeEnvelope = 0, volumeEnvelopePeriod = 0; bool updateVolume = false;
 
 		SC(Memory& memory, uint32_t nrOffset);
 		virtual ~SC() = default;
 
 		void step(uint32_t cycles);
+		virtual void TimerTick();
 		virtual void FrameStep() = 0;
 		virtual float Sample() = 0;
 
@@ -33,11 +34,12 @@ namespace emu
 		virtual uint32_t GetFrequency();
 		virtual void SetFrequency(uint32_t frequency);
 
-		virtual uint32_t GetVoulme();
+		virtual uint32_t GetVolume();
 		virtual bool IsVolumeAdd();
 		virtual uint32_t GetVolumeSweepPeriod();
 
 		virtual uint32_t GetLengthCounter();
+		virtual bool GetLengthEnable();
 
 		virtual uint32_t GetDutyIndex();
 		virtual uint32_t GetCurrentDuty();
@@ -59,6 +61,7 @@ namespace emu
 
 		SC1(Memory& memory);
 		void FrameStep() override;
+		float Sample() override;
 		void FrequencySweepStep();
 	};
 
@@ -66,18 +69,26 @@ namespace emu
 	{
 		SC2(Memory& memory);
 		void FrameStep() override;
+		float Sample() override;
 	};
 
 	struct SC3 : public SC
 	{
 		SC3(Memory& memory);
 		void FrameStep() override;
+		float Sample() override;
+		uint32_t GetVolume() override;
+		void TimerTick() override;
 	};
 
 	struct SC4 : public SC
 	{
+		uint16_t lfsr = 0x0;
+
 		SC4(Memory& memory);
 		void FrameStep() override;
+		float Sample() override;
+		void TimerTick() override;
 	};
 
 	class SPU

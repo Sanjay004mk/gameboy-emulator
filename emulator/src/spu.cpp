@@ -9,19 +9,10 @@
 
 namespace utils
 {
-	static float phase = 0.f;
-	static constexpr float frequency = 440.f;
-	static constexpr float increment = 1.f / emu::SPU::SAMPLE_RATE;
 	static constexpr size_t queue_limit = 4096;
-	static std::chrono::steady_clock::time_point prev, cur;
-	static float diff = 0.f;
 
 	static void device_data_callback(ma_device* device, void* output, const void* input, ma_uint32 frameCount)
 	{
-		cur = std::chrono::high_resolution_clock::now();
-
-		diff = std::chrono::duration<float>(cur - prev).count();
-
 		emu::SPU* spu = (emu::SPU*)device->pUserData;
 		auto& queue = spu->GetQueue();
 		float* out = (float*)output;
@@ -32,7 +23,6 @@ namespace utils
 
 			out += 2;
 		}
-		prev = cur;
 	}
 
 	static uint8_t dutyCycles[][8] = {
@@ -58,10 +48,18 @@ namespace emu
 		RDR_ASSERT_MSG((ma_device_init(NULL, &config, &audioDevice) == MA_SUCCESS), "Failed to initialize audio device");
 
 		ma_device_start(&audioDevice);
+
+		sc[0] = new SC1(memory);
+		sc[1] = new SC2(memory);
+		sc[2] = new SC3(memory);
+		sc[3] = new SC4(memory);
 	}
 
 	SPU::~SPU()
 	{
+		for (auto& s : sc)
+			delete s;
+
 		ma_device_uninit(&audioDevice);
 	}
 
@@ -80,25 +78,32 @@ namespace emu
 
 	void SPU::Sample()
 	{
-		float val = glm::sin(glm::pi<float>() * 2.f * utils::frequency * utils::phase);
-
 		if (queue.size_approx() < utils::queue_limit)
 		{
+			float val = 0.f;
+
+			for (auto& s : sc)
+				if (s->enabled)
+					val += s->Sample();
+
+			val /= 4.f;
+
 			queue.enqueue(val);
 			queue.enqueue(val);
 		}
 		else
 			__debugbreak();
-
-		utils::phase += utils::increment;
-
-		if (utils::phase > 1.f)
-			utils::phase -= 1.f;
 	}
 
 	void SPU::WriteCallback(uint32_t address, uint8_t value)
 	{
+		memory.memory[address] = value;
 
+		uint32_t channel = (address - 0xff10) / 5;
+		uint32_t reg = (address - 0xff10) % 5;
+
+		if (reg == 4 && (value & 0x80) && channel < 5)
+			sc[channel]->Trigger();
 	}
 
 	SC::SC(Memory& memory, uint32_t nrOffset)
@@ -110,7 +115,7 @@ namespace emu
 	void SC::step(uint32_t cyc)
 	{
 		cycles += cyc;
-		if (cycles >= 8192) // 256 hz
+		if (cycles >= 8192) // 512 hz
 		{
 			cycles -= 8192;
 			frameIndex = (frameIndex + 1) % 8;
@@ -118,7 +123,12 @@ namespace emu
 		}
 
 		dutyTimer--;
-		if (dutyTimer <= 0)
+		TimerTick();
+	}
+
+	void SC::TimerTick()
+	{
+		if (dutyTimer < 0)
 		{
 			dutyTimer = (2048 - GetFrequency()) * 4;
 			dutyIndex = (dutyIndex + 1) % 8;
@@ -127,20 +137,23 @@ namespace emu
 
 	void SC::LengthCounterStep()
 	{
-		if (--lengthCounter <= 0)
-			enabled = false;
+		if (GetLengthEnable())
+			if (--lengthCounter <= 0)
+				enabled = false;
 	}
 
 	void SC::VolumeEnvelopeStep()
 	{
-		if (updateVolume)
+		if (!updateVolume || --volumeEnvelopePeriod > 0)
+			return;
+
+		volumeEnvelopePeriod = GetVolumeSweepPeriod();
+
+		volumeEnvelope += IsVolumeAdd() ? 1 : -1;
+		if (volumeEnvelope > 15 || volumeEnvelope < 0)
 		{
-			volumeEnvelope += IsVolumeAdd() ? 1 : -1;
-			if (volumeEnvelope > 15 || volumeEnvelope < 0)
-			{
-				volumeEnvelope = glm::clamp(volumeEnvelope, 0, 15);
-				updateVolume = false;
-			}
+			volumeEnvelope = glm::clamp(volumeEnvelope, 0, 15);
+			updateVolume = false;
 		}
 	}
 
@@ -163,11 +176,12 @@ namespace emu
 
 	uint32_t SC::GetFrequency()	{ return (uint32_t)nrx3() | ((uint32_t)(nrx4() & 7) << 8); }
 	
-	uint32_t SC::GetVoulme() { return ((uint32_t)nrx2() & 0xf0) >> 4; }
+	uint32_t SC::GetVolume() { return ((uint32_t)nrx2() & 0xf0) >> 4; }
 	bool SC::IsVolumeAdd() { return nrx2() & 0x08; }
 	uint32_t SC::GetVolumeSweepPeriod() { return nrx2() & 0x07; }
 	
 	uint32_t SC::GetLengthCounter() { return 64 - (nrx1() & 0x3f); }
+	bool SC::GetLengthEnable() { return nrx4() & 0x40; }
 
 	uint32_t SC::GetDutyIndex() { return (nrx1() & 0xc0) >> 6; }
 	uint32_t SC::GetCurrentDuty() { return utils::dutyCycles[GetDutyIndex()][frameIndex]; }
@@ -188,6 +202,9 @@ namespace emu
 			lengthCounter = 64 - GetLengthCounter();
 
 		dutyTimer = (2048 - GetFrequency()) * 4;
+		volumeEnvelopePeriod = GetVolumeSweepPeriod();
+		volumeEnvelope = GetVolume();
+		dutyIndex = 0;
 	}
 
 	SC1::SC1(Memory& memory)
@@ -209,7 +226,7 @@ namespace emu
 
 		if (shift)
 		{
-			uint32_t newFrequency = shadowFrequency >> shift;
+			int32_t newFrequency = shadowFrequency >> shift;
 			if (nrx0() & 0x10)
 				newFrequency = -newFrequency;
 
@@ -259,13 +276,84 @@ namespace emu
 
 	void SC2::FrameStep()
 	{
+		if (frameIndex % 2 == 0)
+			LengthCounterStep();
+
+		if (frameIndex == 7)
+			VolumeEnvelopeStep();
 	}
 
 	void SC3::FrameStep()
 	{
+		if (frameIndex % 2 == 0)
+			LengthCounterStep();
 	}
 
 	void SC4::FrameStep()
 	{
+		if (frameIndex % 2 == 0)
+			LengthCounterStep();
+
+		if (frameIndex == 7)
+			VolumeEnvelopeStep();
+	}
+
+	float SC1::Sample()
+	{
+		return GetCurrentDuty() * volumeEnvelope / 15.f;
+	}
+
+	float SC2::Sample()
+	{
+		return GetCurrentDuty() * volumeEnvelope / 15.f;
+	}
+
+	uint32_t SC3::GetVolume()
+	{
+		uint8_t c = (nrx2() & 0x60) >> 5;
+		switch (c)
+		{
+		case 1: return 15;
+		case 2: return 15 / 2;
+		case 3: return 15 / 4;
+		default: return 0;
+		}
+	}
+
+	float SC3::Sample()
+	{
+		uint8_t wave = memory.memory[0xff30 + (dutyIndex / 2)];
+		wave = dutyIndex & 1 ? wave & 0x0f : wave >> 4;
+		return (wave * GetVolume()) / (0xf * 15.f);
+	}
+
+	float SC4::Sample()
+	{
+		return (lfsr & 0x01) * volumeEnvelope / 15.f;
+	}
+
+	void SC3::TimerTick()
+	{
+		if (dutyTimer < 0)
+		{
+			dutyTimer = (2048 - GetFrequency()) * 2;
+			dutyIndex = (dutyIndex + 1) % 32;
+		}
+	}
+
+	void SC4::TimerTick()
+	{
+		if (dutyTimer < 0)
+		{
+			dutyTimer = (nrx2() & 0x07) << ((nrx2() & 0xf0) >> 4);
+			uint8_t newDuty = (lfsr & 0x01) ^ ((lfsr >> 1) & 0x01);
+			lfsr >>= 1;
+			lfsr |= (newDuty << 14);
+			if (nrx2() & 0x08)
+			{
+				lfsr |= (newDuty << 6);
+				lfsr &= 0x7f;
+			}
+		}
 	}
 }
