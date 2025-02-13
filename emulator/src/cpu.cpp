@@ -91,7 +91,9 @@ namespace emu
 		}
 
 		ppu.step(stepCycle);
-		spu.step(stepCycle);
+		// TODO fix spu
+		//spu.step(stepCycle);
+
 
 		updateTimer(stepCycle);
 		handleInterrupts();

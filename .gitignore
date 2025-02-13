@@ -17,6 +17,7 @@ emulator/*.log
 emulator/gb-test-roms-master
 emulator/roms
 emulator/imgui.ini
+emulator/gb-states**
 
 ext/glfw/glfw.vcxproj
 ext/glfw/glfw.vcxproj.filters

@@ -98,11 +98,28 @@ namespace utils
 		}
 	};
 
+	static std::unordered_map<rdr::KeyCode, emu::Input> keyMap = {
+		{rdr::Key::A, emu::Input_Button_A},
+		{rdr::Key::Z, emu::Input_Button_B},
+		{rdr::Key::S, emu::Input_Button_Select},
+		{rdr::Key::X, emu::Input_Button_Start},
+		{rdr::Key::Up, emu::Input_Button_Up},
+		{rdr::Key::Down, emu::Input_Button_Down},
+		{rdr::Key::Left, emu::Input_Button_Left},
+		{rdr::Key::Right, emu::Input_Button_Right},
+	};
+
 	struct EmulationData
 	{
 		TimerCallback autoSaver;
+
 		emu::ColorPalette paletteEdit = emu::Palettes::defaultPalette;
 		std::vector<emu::ColorPalette> customPalettes;
+
+		static inline constexpr uint32_t max_save_slots = 8;
+		uint32_t currentSaveSlot = 0, currentLoadSlot = 0, numSaves = 0;
+		std::array<emu::EmulationState, max_save_slots> saveStates;
+		std::string saveStateFile = "gb-states";
 		
 		bool colorSelectWindowIsOpen = false;
 		ImVec4 color[4] = {};
@@ -143,6 +160,143 @@ namespace utils
 	};
 
 	static EmulationData emuData;
+
+	static void save_states_to_file(const std::string& file)
+	{
+		if (emuData.numSaves == 0)
+			return;
+
+		for (uint32_t i = 0; i < emuData.numSaves; i++)
+		{
+			auto& state = emuData.saveStates[i];
+
+			if (!state.valid)
+				continue;
+
+			std::ofstream statesFile(file + " " + std::to_string(i), std::ios::binary);
+			char rom[256] = {};
+			sprintf_s(rom, "%ls", state.rom.c_str());
+			statesFile.write(rom, sizeof(rom));
+
+			uint16_t data[] = {
+				state.af,
+				state.bc,
+				state.de,
+				state.hl,
+				state.pc,
+				state.sp
+			};
+
+			size_t offs[] = { state.romBankOffset, state.ramOffset };
+			bool en[] = { state.romSelect, state.ramEnabled };
+
+			statesFile.write((char*)data, sizeof(data));
+			statesFile.write((char*)offs, sizeof(offs));
+			statesFile.write((char*)en, sizeof(en));
+
+			statesFile.write((char*)state.memory, sizeof(state.memory));
+		}
+	}
+
+	static void save_states_to_file_dialog(rdr::Window* window)
+	{
+		std::string file = window->OpenFile("Save state\0*\0");
+		if (file != std::string())
+		{
+			save_states_to_file(file);
+			emuData.saveStateFile = file;
+		}
+	}
+
+	static void load_states_from_file(const std::string& file)
+	{
+		for (size_t i = 0; i < emuData.max_save_slots; i++)
+		{
+			std::string loadFile = file + " " + std::to_string(i);
+			if (!std::filesystem::exists(loadFile))
+				continue;
+			std::ifstream statesFile(loadFile, std::ios::binary);
+			auto& state = emuData.saveStates[i];
+			char rom[256] = {};
+			statesFile.read(rom, sizeof(rom));
+			state.rom = rom;
+
+			uint16_t* u16locs[] = {
+				&state.af,
+				&state.bc,
+				&state.de,
+				&state.hl,
+				&state.pc,
+				&state.sp
+			};
+
+			size_t* slocs[] = {
+				&state.romBankOffset,
+				&state.ramOffset
+			};
+
+			bool* elocs[] = {
+				&state.romSelect,
+				&state.ramEnabled
+			};
+
+			for (auto& loc : u16locs)
+				statesFile.read((char*)loc, 2);
+
+			for (auto& loc : slocs)
+				statesFile.read((char*)loc, sizeof(size_t));
+
+			for (auto& loc : elocs)
+				statesFile.read((char*)loc, 1);
+
+			statesFile.read((char*)state.memory, sizeof(state.memory));
+
+			state.valid = true;
+
+			emuData.numSaves++;
+		}
+	}
+
+	static void load_states_from_file_dialog(rdr::Window* window)
+	{
+		std::string file = window->OpenFile("Save state\0*\0");
+		if (file != std::string())
+		{
+			RDR_LOG_INFO("Loading state {}", file);
+			load_states_from_file(file);
+			emuData.saveStateFile = file;
+		}
+	}
+
+	static void save_state(emu::CPU* cpu, int32_t index = -1)
+	{
+		if (index == -1)
+		{
+			index = emuData.currentSaveSlot;
+			emuData.currentSaveSlot = (emuData.currentSaveSlot + 1) % emuData.max_save_slots;
+		}
+		auto& state = emuData.saveStates[index];
+
+		emuData.numSaves = glm::min(emuData.max_save_slots, emuData.numSaves + 1);
+		cpu->SaveState(state);
+
+		save_states_to_file(emuData.saveStateFile);
+	}
+
+	static void load_state(emu::CPU* cpu, int32_t index = -1)
+	{
+		if (emuData.numSaves == 0)
+			return;
+
+		if (index == -1)
+		{
+			index = emuData.currentLoadSlot;
+			emuData.currentLoadSlot = (emuData.currentLoadSlot + 1) % emuData.max_save_slots;
+		}
+
+		auto& state = emuData.saveStates[index];
+		cpu->LoadState(state);
+	}
 }
 
 namespace emu
@@ -163,8 +317,10 @@ namespace emu
 			autoSaver.timeout = 5.f;
 			autoSaver.callback = [&](void* user) { cpu->SaveRAM(); };
 
-			mAppInfo.emulators.emplace_back(new Emulator(cpu));
+			mAppInfo.emulators.push_back(new Emulator(cpu));
 			mAppInfo.emulators.push_back(new Debugger(cpu));
+
+			utils::load_states_from_file(utils::emuData.saveStateFile);
 
 			window->SetEventCallback([&](rdr::Event& e) 
 				{
@@ -207,6 +363,15 @@ namespace emu
 							// save game
 						case rdr::Key::S:
 							cpu->SaveRAM();
+							break;
+
+							// save states
+						case rdr::Key::C:
+							utils::save_state(cpu);
+							break;
+
+						case rdr::Key::V:
+							utils::load_state(cpu);
 							break;
 
 							// play / pause emulation
@@ -376,6 +541,44 @@ namespace emu
 				ImGui::EndPopup();
 			}
 
+			ImGui::SameLine();
+
+			if (ImGui::Button("Save state", ImVec2(ImGui::CalcTextSize("Save state").x + 14.f, topBarSize.y)))
+			{
+				ImGui::OpenPopup("Save state Menu");
+			}
+
+			if (ImGui::BeginPopup("Save state Menu")) 
+			{
+
+				for (uint32_t i = 0; i < utils::emuData.max_save_slots; i++)
+				{
+					if (ImGui::MenuItem(("Save slot " + std::to_string(i)).c_str()))
+						utils::save_state(mAppInfo.cpu, i);
+				}
+
+				ImGui::EndPopup();
+			}
+
+			ImGui::SameLine();
+
+			if (ImGui::Button("Load state", ImVec2(ImGui::CalcTextSize("Load state").x + 14.f, topBarSize.y)))
+			{
+				ImGui::OpenPopup("Load state Menu");
+			}
+
+			if (ImGui::BeginPopup("Load state Menu"))
+			{
+
+				for (uint32_t i = 0; i < utils::emuData.max_save_slots; i++)
+				{
+					if (ImGui::MenuItem(("Save slot " + std::to_string(i)).c_str()))
+						utils::load_state(mAppInfo.cpu, i);
+				}
+
+				ImGui::EndPopup();
+			}
+
 			mAppInfo.GetCurrentEmulator().ImGuiMenuBarOptions();
 
 			ImGui::End();
@@ -454,91 +657,24 @@ namespace emu
 					return true;
 				}
 
-				bool ret = true;
-				switch (e.GetKeyCode())
+				if (utils::keyMap.contains(e.GetKeyCode()))
 				{
-				case rdr::Key::Up:
-					mCpu->InputPressed(Input_Button_Up);
-					break;
-
-				case rdr::Key::Down:
-					mCpu->InputPressed(Input_Button_Down);
-					break;
-
-				case rdr::Key::Left:
-					mCpu->InputPressed(Input_Button_Left);
-					break;
-
-				case rdr::Key::Right:
-					mCpu->InputPressed(Input_Button_Right);
-					break;
-
-				case rdr::Key::A:
-					mCpu->InputPressed(Input_Button_A);
-					break;
-
-				case rdr::Key::Z:
-					mCpu->InputPressed(Input_Button_B);
-					break;
-
-				case rdr::Key::S:
-					mCpu->InputPressed(Input_Button_Select);
-					break;
-
-				case rdr::Key::X:
-					mCpu->InputPressed(Input_Button_Start);
-					break;
-
-				default:
-					ret = false;
+					mCpu->InputPressed(utils::keyMap.at(e.GetKeyCode()));
+					return true;
 				}
 
-				return ret;
+				return false;
 			});
 
 		dispatcher.Dispatch<rdr::KeyReleasedEvent>([&](rdr::KeyReleasedEvent& e)
 			{
-				bool ret = true;
 				CPU* cpu = mCpu;
-				switch (e.GetKeyCode())
+				if (utils::keyMap.contains(e.GetKeyCode()))
 				{
-				case rdr::Key::Up:
-					cpu->InputReleased(Input_Button_Up);
-					break;
-
-				case rdr::Key::Down:
-					cpu->InputReleased(Input_Button_Down);
-					break;
-
-				case rdr::Key::Left:
-					cpu->InputReleased(Input_Button_Left);
-					break;
-
-				case rdr::Key::Right:
-					cpu->InputReleased(Input_Button_Right);
-					break;
-
-				case rdr::Key::A:
-					cpu->InputReleased(Input_Button_A);
-					break;
-
-				case rdr::Key::Z:
-					cpu->InputReleased(Input_Button_B);
-					break;
-
-				case rdr::Key::S:
-					cpu->InputReleased(Input_Button_Select);
-					break;
-
-				case rdr::Key::X:
-					cpu->InputReleased(Input_Button_Start);
-					break;
-
-				default:
-					ret = false;
+					mCpu->InputReleased(utils::keyMap.at(e.GetKeyCode()));
+					return true;
 				}
-
-				return ret;
+				return false;
 			});
 
 	}
@@ -551,6 +687,42 @@ namespace emu
 			mCpu->Update();
 		}
 
+		// handle joypad input
+		rdr::Joystick j = rdr::Renderer::GetJoystick();
+		std::unordered_map<int32_t, Input> buttonMap = {
+			{1, Input_Button_A},
+			{2, Input_Button_B},
+			{8, Input_Button_Select},
+			{9, Input_Button_Start},
+		};
+		std::unordered_map<int32_t, Input> hatMap = {
+			{1, Input_Button_Up},
+			{-1, Input_Button_Down},
+			{2, Input_Button_Right},
+			{-2, Input_Button_Left},
+		};
+		if (j.IsEnabled())
+		{
+			for (auto& [k, v] : buttonMap)
+			{
+				if (j.GetButton(k))
+					mCpu->InputPressed(v);
+				else
+					mCpu->InputReleased(v);
+			}
+
+			auto hat = j.GetHat();
+			int32_t val = hat.y ? hat.y : 2 * hat.x;
+			if (hatMap.contains(val))
+			{
+				mCpu->InputPressed(hatMap.at(val));
+			}
+			else
+			{
+				for (int32_t i = 4; i < 8; i++)
+					mCpu->InputReleased((Input)i);
+			}
+		}
 	}
 
 	void Emulator::OnImGuiUpdate()
@@ -559,11 +731,16 @@ namespace emu
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 10.0f));
+
+		ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImVec2 vsize = viewport->Size;
+		vsize.y -= topBarSize.y - footerSize.y;
+		ImGui::SetNextWindowSize(vsize);
 
 		window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoSavedSettings;
+		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 10.0f));
 		ImGui::Begin("Gameplay", nullptr, window_flags);
 		ImGui::PopStyleVar(3);
 

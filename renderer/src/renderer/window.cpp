@@ -393,4 +393,74 @@ namespace rdr
 #error "openfile not handled" 
 #endif
 	}
+
+	Joystick Renderer::GetJoystick(int32_t index)
+	{
+		Joystick j;
+
+		if (index != -1)
+		{
+			j.id = index;
+			if (glfwJoystickPresent(index))
+				j.enabled = true;
+
+			return j;
+		}
+
+		for (uint32_t i = 0; i < 16; i++)
+		{
+			if (glfwJoystickPresent(i))
+			{
+				j.id = i;
+				j.enabled = true;
+			}
+		}
+
+		return j;
+	}
+
+	float Joystick::GetAxis(int32_t axis) const
+	{
+		int32_t count = 0;
+		const float* axes = glfwGetJoystickAxes(id, &count);
+
+		if (axis < count)
+			return axes[axis];
+		
+		return 0.f;
+	}
+
+	bool Joystick::GetButton(int32_t button) const
+	{
+		int32_t count = 0;
+
+		const uint8_t* buttons = glfwGetJoystickButtons(id, &count);
+
+		if (button < count)
+			return buttons[button];
+
+		return false;
+	}
+
+	glm::ivec2 Joystick::GetHat(int32_t index) const
+	{
+		int32_t count = 0;
+		const uint8_t* hats = glfwGetJoystickHats(id, &count);
+		glm::ivec2 ret = {};
+
+		if (index < count)
+		{
+			auto hat = hats[index];
+			if (hat & 1)
+				ret.y += 1;
+			if (hat & 2)
+				ret.x += 1;
+			if (hat & 4)
+				ret.y -= 1;
+			if (hat & 8)
+				ret.x -= 1;
+		}
+
+		return ret;
+	}
 }

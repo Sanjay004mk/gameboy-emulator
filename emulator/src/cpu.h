@@ -3,6 +3,7 @@
 #include "rom.h"
 #include "ppu.h"
 #include "spu.h"
+#include "savestate.h"
 
 namespace emu
 {
@@ -78,6 +79,10 @@ namespace emu
 		void Update();
 
 		void LoadRom(const char* file);
+
+		void LoadState(const EmulationState& state, bool strict = true);
+		void SaveState(EmulationState& state);
+
 		rdr::Texture* GetDisplayTexture() { return ppu.GetDisplayTexture(); }
 
 		void Pause();

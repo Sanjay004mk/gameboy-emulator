@@ -3,6 +3,7 @@
 #include "renderer/rdrapi.h"
 #include "renderer/window.h"
 #include "renderer/texture.h"
+#include "renderer/joystick.h"
 
 #include <span>
 #include <string_view>
@@ -43,6 +44,8 @@ namespace rdr
 
 		static RDRAPI void PollEvents();
 		static RDRAPI void WaitEvents();
+
+		static RDRAPI Joystick GetJoystick(int32_t index = -1);
 
 		static RDRAPI Window* InstantiateWindow(const WindowConfiguration& windowConfig);
 		static RDRAPI void FreeWindow(Window* window);

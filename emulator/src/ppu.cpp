@@ -26,38 +26,38 @@ namespace emu
 	};
 
 	extern const ColorPalette Palettes::grayScale = {
-		0xFF0D0D0D,
-		0xFF505050,
+		0xFFD0D0D0,
 		0xFF909090,
-		0xFFD0D0D0
+		0xFF505050,
+		0xFF0D0D0D
 	};
 
 	extern const ColorPalette Palettes::blueTint = {
-		0xFF301F0A,
-		0xFF705020,
+		0xFFF0D090,
 		0xFFC0A060,
-		0xFFF0D090
+		0xFF705020,
+		0xFF301F0A
 	};
 
 	extern const ColorPalette Palettes::purpleTint = {
-		0xFF200020,
-		0xFF502050,
+		0xFFD090D0,
 		0xFF905090,
-		0xFFD090D0
+		0xFF502050,
+		0xFF200020
 	};
 
 	extern const ColorPalette Palettes::orangeTint = {
-		0xFF000030,
-		0xFF103070,
+		0xFF50A0F0,
 		0xFF3060B0,
-		0xFF50A0F0
+		0xFF103070,
+		0xFF000030
 	};
 
 	extern const ColorPalette Palettes::yellowTint = {
-		0xFF002A3A,
-		0xFF105A7A,
+		0xFF90E0F8,
 		0xFF30A0D0,
-		0xFF90E0F8
+		0xFF105A7A,
+		0xFF002A3A
 	};
 
 	PPU::TextureMap::TextureMap(uint32_t w, uint32_t h)
