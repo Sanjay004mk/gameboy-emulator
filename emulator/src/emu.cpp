@@ -714,7 +714,7 @@ namespace emu
 	{
 		rdr::Joystick j = rdr::Renderer::GetJoystick();
 
-		if (j.IsEnabled())
+		if (j.IsEnabled() && useJoypad)
 		{
 			for (auto& [k, v] : utils::joystickMap)
 			{
@@ -839,7 +839,13 @@ namespace emu
 
 	void Emulator::ImGuiFooterOptions(const glm::vec2& region)
 	{
-
+		ImVec2 textSize = ImGui::CalcTextSize("Input: ");
+		ImGui::SetCursorPosY((region.y - textSize.y));
+		ImGui::Text("Input:");
+		ImGui::SameLine();
+		ImGui::SetCursorPosY((region.y - textSize.y) - 2.f);
+		if (ImGui::Button(useJoypad ? "Joypad" : "Keyboard"))
+			useJoypad = !useJoypad;
 	}
 
 	Debugger::Debugger(CPU* cpu)
@@ -1187,5 +1193,6 @@ namespace emu
 
 	void Debugger::ImGuiFooterOptions(const glm::vec2& region)
 	{
+		Emulator::ImGuiFooterOptions(region);
 	}
 }

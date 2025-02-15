@@ -24,13 +24,13 @@ namespace emu
 
 		virtual void OnImGuiUpdate();
 
-
 		virtual void ImGuiSetupDockspace();
 		virtual void ImGuiMenuBarOptions();
 		virtual void ImGuiFooterOptions(const glm::vec2& region);
 
 		CPU* mCpu = nullptr;
 		bool buildDockspace = true;
+		bool useJoypad = true;
 		float emulationSpeed = 1.f;
 		float timeSinceLastUpdate = 0.f;
 
