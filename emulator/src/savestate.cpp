@@ -8,9 +8,9 @@ namespace emu
 	{
 		if (state.rom != memory.romFileName)
 		{
-			RDR_LOG_ERROR("Loading save state of a different rom. May lead to unexpected behaviour!");
 			if (strict)
 				return;
+			RDR_LOG_ERROR("Loading save state of a different rom. May lead to unexpected behaviour!");
 		}
 
 		memcpy_s(memory.memory, sizeof(memory.memory), state.memory, sizeof(state.memory));

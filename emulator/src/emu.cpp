@@ -109,6 +109,17 @@ namespace utils
 		{rdr::Key::Right, emu::Input_Button_Right},
 	};
 
+	static std::unordered_map<int32_t, emu::Input> joystickMap = {
+		{1, emu::Input_Button_A},
+		{2, emu::Input_Button_B},
+		{8, emu::Input_Button_Select},
+		{9, emu::Input_Button_Start},
+		{100,  emu::Input_Button_Up},
+		{-100, emu::Input_Button_Down},
+		{200,  emu::Input_Button_Right},
+		{-200, emu::Input_Button_Left},
+	};
+
 	struct EmulationData
 	{
 		TimerCallback autoSaver;
@@ -174,6 +185,10 @@ namespace utils
 				continue;
 
 			std::ofstream statesFile(file + " " + std::to_string(i), std::ios::binary);
+
+			if (!statesFile)
+				continue;
+
 			char rom[256] = {};
 			sprintf_s(rom, "%ls", state.rom.c_str());
 			statesFile.write(rom, sizeof(rom));
@@ -213,9 +228,15 @@ namespace utils
 		for (size_t i = 0; i < emuData.max_save_slots; i++)
 		{
 			std::string loadFile = file + " " + std::to_string(i);
+
 			if (!std::filesystem::exists(loadFile))
 				continue;
+
 			std::ifstream statesFile(loadFile, std::ios::binary);
+
+			if (!statesFile)
+				continue;
+
 			auto& state = emuData.saveStates[i];
 			char rom[256] = {};
 			statesFile.read(rom, sizeof(rom));
@@ -230,7 +251,7 @@ namespace utils
 				&state.sp
 			};
 
-			size_t* slocs[] = {
+			uint32_t* slocs[] = {
 				&state.romBankOffset,
 				&state.ramOffset
 			};
@@ -422,6 +443,7 @@ namespace emu
 				rdr::Renderer::EndFrame();
 
 				rdr::Renderer::PollEvents();
+				mAppInfo.GetCurrentEmulator().HandleJoypad();
 
 				autoSaver.Tick(ts);
 				
@@ -686,25 +708,19 @@ namespace emu
 			timeSinceLastUpdate = 0.f;
 			mCpu->Update();
 		}
+	}
 
-		// handle joypad input
+	void Emulator::HandleJoypad()
+	{
 		rdr::Joystick j = rdr::Renderer::GetJoystick();
-		std::unordered_map<int32_t, Input> buttonMap = {
-			{1, Input_Button_A},
-			{2, Input_Button_B},
-			{8, Input_Button_Select},
-			{9, Input_Button_Start},
-		};
-		std::unordered_map<int32_t, Input> hatMap = {
-			{1, Input_Button_Up},
-			{-1, Input_Button_Down},
-			{2, Input_Button_Right},
-			{-2, Input_Button_Left},
-		};
+
 		if (j.IsEnabled())
 		{
-			for (auto& [k, v] : buttonMap)
+			for (auto& [k, v] : utils::joystickMap)
 			{
+				if (k > 99 || k < -99)
+					continue;
+
 				if (j.GetButton(k))
 					mCpu->InputPressed(v);
 				else
@@ -712,15 +728,18 @@ namespace emu
 			}
 
 			auto hat = j.GetHat();
-			int32_t val = hat.y ? hat.y : 2 * hat.x;
-			if (hatMap.contains(val))
+			int32_t vals[] = { hat.y * 100, hat.x * 200 };
+
+			for (int32_t i = 4; i < 8; i++)
+				mCpu->InputReleased((Input)i);
+
+			for (auto v : vals)
 			{
-				mCpu->InputPressed(hatMap.at(val));
-			}
-			else
-			{
-				for (int32_t i = 4; i < 8; i++)
-					mCpu->InputReleased((Input)i);
+				if (utils::joystickMap.contains(v))
+				{
+					mCpu->InputPressed(utils::joystickMap.at(v));
+					break;
+				}
 			}
 		}
 	}

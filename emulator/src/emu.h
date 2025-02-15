@@ -14,6 +14,7 @@ namespace emu
 
 		virtual void Step(float timestep);
 		virtual void OnEvent(rdr::Event& e);
+		virtual void HandleJoypad();
 
 		static void StartEmulator(int argc, const char** argv);
 
@@ -22,6 +23,7 @@ namespace emu
 		virtual void OnAttach() {}
 
 		virtual void OnImGuiUpdate();
+
 
 		virtual void ImGuiSetupDockspace();
 		virtual void ImGuiMenuBarOptions();
